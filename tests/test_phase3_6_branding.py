@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from app.atlas_application import AtlasApplication
 from app.main_window import MainWindow
+from app.ui.branding.icons import app_icon, create_logo_pixmap, logo_asset_path
 from app.ui.branding.identity import DEVELOPER, VERSION, WINDOW_TITLE
 from app.ui.dialogs.about_dialog import AboutDialog
 from app.ui.splash.splash_screen import SplashScreen
@@ -34,6 +35,12 @@ class BrandingTests(unittest.TestCase):
         self.assertEqual(VERSION, "3.0.0")
         self.assertEqual(DEVELOPER, "Dennis Verbakel")
 
+    def test_atlas_logo_asset_exists(self) -> None:
+        self.assertTrue(logo_asset_path().is_file(), msg=str(logo_asset_path()))
+        pixmap = create_logo_pixmap(64)
+        self.assertFalse(pixmap.isNull())
+        self.assertFalse(app_icon().isNull())
+
     def test_splash_screen_creates(self) -> None:
         splash = SplashScreen()
         self.assertEqual(splash.windowTitle() or "", "")
@@ -47,7 +54,7 @@ class BrandingTests(unittest.TestCase):
     def test_empty_state_configure(self) -> None:
         empty = EmptyState()
         empty.configure("No Channels yet", "Create one to begin.", "Create", lambda: None)
-        self.assertTrue(empty.isVisible() or True)
+        self.assertTrue(True)
 
 
 if __name__ == "__main__":

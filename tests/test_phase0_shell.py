@@ -17,7 +17,11 @@ from app.ui.sidebar import Sidebar
 class Phase0ShellTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.app = AtlasApplication(sys.argv[:1])
+        existing = AtlasApplication.instance()
+        if existing is None:
+            cls.app = AtlasApplication(sys.argv[:1])
+        else:
+            cls.app = existing
 
     def test_main_window_creates(self) -> None:
         window = MainWindow()

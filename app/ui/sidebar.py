@@ -1,7 +1,9 @@
 """Application sidebar with brand mark and navigation."""
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
+
+from app.ui.branding.icons import create_logo_pixmap
 
 
 class Sidebar(QFrame):
@@ -22,15 +24,23 @@ class Sidebar(QFrame):
         self.setObjectName("Sidebar")
         self.setFixedWidth(228)
 
+        logo_image = QLabel()
+        logo_image.setObjectName("SidebarLogoImage")
+        logo_image.setPixmap(create_logo_pixmap(56))
+        logo_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         logo = QLabel("ATLAS STUDIO")
         logo.setObjectName("SidebarLogo")
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         tagline = QLabel("V3")
         tagline.setObjectName("SidebarTagline")
+        tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 8, 0, 16)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 12, 0, 16)
+        layout.setSpacing(2)
+        layout.addWidget(logo_image)
         layout.addWidget(logo)
         layout.addWidget(tagline)
 
