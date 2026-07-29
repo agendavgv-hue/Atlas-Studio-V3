@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "Mirror Drift",
+  "folder_name": "Mirror Drift",
+  "description": "",
+  "logo": null,
+  "banner": null,
+  "image_prompt": "",
+  "negative_prompt": "",
+  "thumbnail_prompt": "",
+  "voice": {},
+  "movie": {},
+  "seo": {}
+}
