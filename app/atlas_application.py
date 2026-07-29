@@ -8,6 +8,8 @@ from PySide6.QtWidgets import QApplication
 
 from app.channels.channel_service import ChannelService
 from app.core.storage import Storage, build_storage
+from app.pipelines.engine import ProductionEngine
+from app.pipelines.registry import PipelineRegistry
 from app.projects.project_service import ProjectService
 from app.ui.branding.icons import app_icon
 from app.ui.branding.identity import APP_NAME, ORGANIZATION
@@ -15,11 +17,12 @@ from app.ui.theme.atlas_theme import apply_theme
 
 
 class AtlasApplication(QApplication):
-    """Owns application lifecycle, theme, storage, channels, and projects."""
+    """Owns application lifecycle, theme, storage, channels, projects, and production."""
 
     storage: Storage
     channels: ChannelService
     projects: ProjectService
+    production: ProductionEngine
 
     def __init__(self, argv: list[str], *, auto_bootstrap: bool = True) -> None:
         super().__init__(argv)
@@ -55,6 +58,12 @@ class AtlasApplication(QApplication):
 
         step("Project Intelligence")
         from app.projects import project_intelligence as _project_intelligence  # noqa: F401
+
+        step("Production Engine")
+        self.production = ProductionEngine(
+            self.projects,
+            registry=PipelineRegistry(),
+        )
 
         step("Ready")
         self._bootstrapped = True

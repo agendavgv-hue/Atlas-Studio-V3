@@ -37,6 +37,10 @@ class ProjectService:
     def active_project(self) -> ActiveProject | None:
         return self._active
 
+    @property
+    def project_root(self):
+        return self._config.project_root
+
     def _paths(self, channel_name: str) -> ProjectPaths:
         channel = channel_name.strip()
         if not channel:
