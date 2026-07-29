@@ -2,8 +2,7 @@
 
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from app.ui.branding.identity import APP_NAME, VERSION
-from app.ui.widgets.empty_state import EmptyState
+from app.ui.branding.identity import WINDOW_TITLE, VERSION
 
 
 class DashboardPage(QWidget):
@@ -14,18 +13,24 @@ class DashboardPage(QWidget):
         title = QLabel("Dashboard")
         title.setObjectName("PageTitle")
 
-        subtitle = QLabel(f"{APP_NAME} {VERSION}")
+        subtitle = QLabel(f"{WINDOW_TITLE}  ·  Version {VERSION}")
         subtitle.setObjectName("PageSubtitle")
 
-        empty = EmptyState()
-        empty.configure(
-            "Welcome to Atlas Studio",
-            "Select a channel, create a project, and produce through one clear workflow.",
+        welcome = QLabel("Welcome to Atlas Studio")
+        welcome.setObjectName("WelcomeTitle")
+
+        message = QLabel(
+            "Select a channel, create a project, and produce through one clear workflow."
         )
+        message.setObjectName("PageSubtitle")
+        message.setWordWrap(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(36, 36, 36, 36)
-        layout.setSpacing(12)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(10)
         layout.addWidget(title)
         layout.addWidget(subtitle)
-        layout.addWidget(empty, stretch=1)
+        layout.addSpacing(28)
+        layout.addWidget(welcome)
+        layout.addWidget(message)
+        layout.addStretch()

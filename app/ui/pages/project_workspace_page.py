@@ -85,7 +85,11 @@ class ProjectWorkspacePage(QWidget):
             return
 
         self._title.setText(project.name)
-        self._meta.setText(f"{project.channel_name} • {project.status}")
+        try:
+            status = app.projects.lifecycle_status(self._channel_name, self._project_folder)
+        except (OSError, FileNotFoundError, ValueError):
+            status = project.status
+        self._meta.setText(f"{project.channel_name} • {status}")
 
         self._clear_progress()
         for step in progress.steps:

@@ -9,15 +9,19 @@ from typing import Any
 PROJECT_SCHEMA_VERSION = 1
 
 STATUS_DRAFT = "Draft"
-STATUS_READY = "Ready"
 STATUS_IN_PROGRESS = "In Progress"
-STATUS_COMPLETED = "Completed"
+STATUS_READY_TO_PUBLISH = "Ready to Publish"
+STATUS_PUBLISHED = "Published"  # Reserved — manual later; not auto-derived
+STATUS_READY = "Ready"  # Legacy alias kept for older project.json values
+STATUS_COMPLETED = "Completed"  # Legacy
 STATUS_ARCHIVED = "Archived"
 
 PROJECT_STATUSES: tuple[str, ...] = (
     STATUS_DRAFT,
-    STATUS_READY,
     STATUS_IN_PROGRESS,
+    STATUS_READY_TO_PUBLISH,
+    STATUS_PUBLISHED,
+    STATUS_READY,
     STATUS_COMPLETED,
     STATUS_ARCHIVED,
 )

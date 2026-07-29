@@ -56,23 +56,27 @@ def stylesheet() -> str:
     }}
 
     QLabel#SidebarLogoImage {{
-        padding: 8px 18px 0 18px;
+        padding: 0;
         background: transparent;
     }}
 
     QLabel#SidebarLogo {{
         color: {c["text"]};
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 700;
-        letter-spacing: 2.4px;
-        padding: 8px 18px 0 18px;
+        letter-spacing: 2.6px;
+        padding: 0;
     }}
 
     QLabel#SidebarTagline {{
         color: {c["accent"]};
         font-size: 10px;
-        letter-spacing: 1.6px;
-        padding: 0 18px 20px 18px;
+        letter-spacing: 2px;
+        padding: 0;
+    }}
+
+    QWidget#SidebarBrand {{
+        background: transparent;
     }}
 
     QFrame#Sidebar {{
@@ -202,27 +206,39 @@ def stylesheet() -> str:
     }}
 
     QWidget#SplashScreen {{
-        background-color: {c["bg_deep"]};
-        border: 1px solid {c["border"]};
-        border-radius: 14px;
+        background-color: #000000;
+        border: none;
+        border-radius: 0px;
     }}
 
     QLabel#SplashTitle {{
-        color: {c["text"]};
-        font-size: 26px;
+        color: #F4F1EA;
+        font-size: 28px;
         font-weight: 600;
-        letter-spacing: 1px;
+        letter-spacing: 1.2px;
     }}
 
     QLabel#SplashVersion {{
         color: {c["accent"]};
         font-size: 12px;
-        letter-spacing: 1px;
+        letter-spacing: 1.4px;
     }}
 
     QLabel#SplashStatus {{
-        color: {c["text_muted"]};
+        color: #9AA3AD;
         font-size: 12px;
+    }}
+
+    QLabel#SplashSteps {{
+        color: #F4F1EA;
+        font-size: 13px;
+    }}
+
+    QLabel#WelcomeTitle {{
+        color: {c["text"]};
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
     }}
 
     QLabel#SectionLabel {{

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.ui.branding.icons import create_logo_pixmap
@@ -19,10 +20,15 @@ class SplashScreen(QWidget):
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.SplashScreen
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedSize(420, 460)
+        self.setFixedSize(520, 560)
+
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("#000000"))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
 
         logo = QLabel()
-        logo.setPixmap(create_logo_pixmap(120))
+        logo.setPixmap(create_logo_pixmap(180))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         title = QLabel(WINDOW_TITLE)
@@ -39,17 +45,18 @@ class SplashScreen(QWidget):
 
         self._steps_host = QWidget()
         self._steps_layout = QVBoxLayout(self._steps_host)
-        self._steps_layout.setContentsMargins(24, 0, 24, 0)
-        self._steps_layout.setSpacing(6)
+        self._steps_layout.setContentsMargins(40, 0, 40, 0)
+        self._steps_layout.setSpacing(8)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(36, 40, 36, 36)
-        layout.setSpacing(10)
+        layout.setContentsMargins(40, 48, 40, 40)
+        layout.setSpacing(12)
         layout.addStretch()
         layout.addWidget(logo)
+        layout.addSpacing(8)
         layout.addWidget(title)
         layout.addWidget(version)
-        layout.addSpacing(18)
+        layout.addSpacing(28)
         layout.addWidget(self._status)
         layout.addWidget(self._steps_host)
         layout.addStretch()
@@ -65,17 +72,17 @@ class SplashScreen(QWidget):
             )
         self.setWindowOpacity(0.0)
         self.show()
-        fade_window(self, start=0.0, end=1.0, duration_ms=160)
+        fade_window(self, start=0.0, end=1.0, duration_ms=180)
 
     def mark_step(self, label: str) -> None:
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
+        row_layout.setSpacing(10)
 
         icon = QLabel()
-        icon.setPixmap(status_icon_pixmap("complete", 14))
-        icon.setFixedSize(16, 16)
+        icon.setPixmap(status_icon_pixmap("complete", 16))
+        icon.setFixedSize(18, 18)
 
         text = QLabel(label)
         text.setObjectName("SplashSteps")
@@ -90,4 +97,4 @@ class SplashScreen(QWidget):
         self._status.setText("Ready")
 
     def fade_out(self, finished) -> None:
-        fade_window(self, start=1.0, end=0.0, duration_ms=160, finished=finished)
+        fade_window(self, start=1.0, end=0.0, duration_ms=200, finished=finished)

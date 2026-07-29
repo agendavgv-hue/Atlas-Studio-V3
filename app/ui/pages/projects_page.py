@@ -154,7 +154,11 @@ class ProjectsPage(QWidget):
 
         self._subtitle.setText(f"Channel: {channel}  ·  {len(projects)} project(s)")
         for project in projects:
-            item = QListWidgetItem(f"{project.name}  —  {project.status}")
+            try:
+                status = app.projects.lifecycle_status(channel, project.folder_name)
+            except (ProjectRootError, OSError, FileNotFoundError):
+                status = project.status
+            item = QListWidgetItem(f"{project.name}  —  {status}")
             item.setData(Qt.ItemDataRole.UserRole, project.folder_name)
             self._list.addItem(item)
 

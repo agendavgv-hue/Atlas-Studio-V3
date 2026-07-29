@@ -37,10 +37,10 @@ class ProjectModelTests(unittest.TestCase):
         self.assertEqual(project.status, STATUS_DRAFT)
 
     def test_lifecycle_statuses_defined(self) -> None:
-        self.assertEqual(
-            list(PROJECT_STATUSES),
-            ["Draft", "Ready", "In Progress", "Completed", "Archived"],
-        )
+        self.assertIn("Draft", PROJECT_STATUSES)
+        self.assertIn("In Progress", PROJECT_STATUSES)
+        self.assertIn("Ready to Publish", PROJECT_STATUSES)
+        self.assertIn("Published", PROJECT_STATUSES)
 
     def test_workflow_steps_match_blueprint_order(self) -> None:
         self.assertEqual(

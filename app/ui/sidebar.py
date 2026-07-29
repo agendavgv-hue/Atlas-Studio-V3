@@ -22,11 +22,17 @@ class Sidebar(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(228)
+        self.setFixedWidth(232)
+
+        brand = QWidget()
+        brand.setObjectName("SidebarBrand")
+        brand_layout = QVBoxLayout(brand)
+        brand_layout.setContentsMargins(20, 20, 20, 16)
+        brand_layout.setSpacing(10)
 
         logo_image = QLabel()
         logo_image.setObjectName("SidebarLogoImage")
-        logo_image.setPixmap(create_logo_pixmap(56))
+        logo_image.setPixmap(create_logo_pixmap(72))
         logo_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         logo = QLabel("ATLAS STUDIO")
@@ -37,12 +43,14 @@ class Sidebar(QFrame):
         tagline.setObjectName("SidebarTagline")
         tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        brand_layout.addWidget(logo_image)
+        brand_layout.addWidget(logo)
+        brand_layout.addWidget(tagline)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 12, 0, 16)
-        layout.setSpacing(2)
-        layout.addWidget(logo_image)
-        layout.addWidget(logo)
-        layout.addWidget(tagline)
+        layout.setContentsMargins(0, 0, 0, 16)
+        layout.setSpacing(6)
+        layout.addWidget(brand)
 
         self._buttons: dict[str, QPushButton] = {}
         for key, label in self.NAV_ITEMS:

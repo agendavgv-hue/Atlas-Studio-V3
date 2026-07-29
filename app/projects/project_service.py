@@ -126,6 +126,12 @@ class ProjectService:
             raise FileNotFoundError(f"Project folder not found: {folder}")
         return scan_project_progress(project_dir)
 
+    def lifecycle_status(self, channel_name: str, name: str) -> str:
+        """Derive display lifecycle from Project Intelligence (not stored Draft)."""
+        from app.projects.lifecycle import derive_lifecycle_status
+
+        return derive_lifecycle_status(self.get_progress(channel_name, name))
+
     def delete_project(self, channel_name: str, name: str) -> None:
         paths = self._paths(channel_name)
         folder = name.strip()
