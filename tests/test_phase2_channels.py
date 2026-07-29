@@ -11,7 +11,10 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from app.channels.channel_discovery import discover_channel_folder_names
+from app.channels.channel_discovery import (
+    DEFAULT_IGNORED_CHANNEL_FOLDERS,
+    discover_channel_folder_names,
+)
 from app.channels.channel_service import ChannelService
 from app.channels.models import Channel
 from app.core.app_config import AppConfig
@@ -41,6 +44,31 @@ class ChannelDiscoveryTests(unittest.TestCase):
 
             self.assertEqual(names, ["Hollow Atlas", "Mirror Drift"])
 
+    def test_default_ignore_list_includes_master(self) -> None:
+        self.assertIn("MASTER", DEFAULT_IGNORED_CHANNEL_FOLDERS)
+
+    def test_ignores_master_folder_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Hollow Atlas").mkdir()
+            (root / "MASTER").mkdir()
+
+            names = discover_channel_folder_names(root)
+
+            self.assertEqual(names, ["Hollow Atlas"])
+            self.assertNotIn("MASTER", names)
+
+    def test_custom_ignore_list_is_configurable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Keep").mkdir()
+            (root / "SkipMe").mkdir()
+            (root / "MASTER").mkdir()
+
+            names = discover_channel_folder_names(root, ignored_folders=("SkipMe",))
+
+            self.assertEqual(names, ["Keep", "MASTER"])
+
 
 class ChannelServiceTests(unittest.TestCase):
     def test_create_channel_makes_library_and_config(self) -> None:
@@ -68,6 +96,17 @@ class ChannelServiceTests(unittest.TestCase):
             self.assertTrue(
                 (data_root / "Channels" / "Hollow Atlas" / "channel.json").is_file()
             )
+
+    def test_list_skips_ignored_master_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service, data_root, project_root = _service(Path(tmp))
+            (project_root / "Hollow Atlas").mkdir()
+            (project_root / "MASTER").mkdir()
+
+            channels = service.list_channels()
+
+            self.assertEqual([c.name for c in channels], ["Hollow Atlas"])
+            self.assertFalse((data_root / "Channels" / "MASTER").exists())
 
     def test_unlimited_synthetic_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
