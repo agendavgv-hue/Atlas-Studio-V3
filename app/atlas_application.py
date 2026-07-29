@@ -1,10 +1,16 @@
 """Application bootstrap for Atlas Studio."""
 
+from __future__ import annotations
+
+from collections.abc import Callable
+
 from PySide6.QtWidgets import QApplication
 
 from app.channels.channel_service import ChannelService
 from app.core.storage import Storage, build_storage
 from app.projects.project_service import ProjectService
+from app.ui.branding.icons import app_icon
+from app.ui.branding.identity import APP_NAME, ORGANIZATION
 from app.ui.theme.atlas_theme import apply_theme
 
 
@@ -15,14 +21,48 @@ class AtlasApplication(QApplication):
     channels: ChannelService
     projects: ProjectService
 
-    def __init__(self, argv: list[str]) -> None:
+    def __init__(self, argv: list[str], *, auto_bootstrap: bool = True) -> None:
         super().__init__(argv)
-        self.setApplicationName("Atlas Studio")
-        self.setOrganizationName("Atlas Studio")
+        self.setApplicationName(APP_NAME)
+        self.setOrganizationName(ORGANIZATION)
+        self.setWindowIcon(app_icon())
         self.setStyle("Fusion")
         apply_theme(self)
 
+        self._notification_host = None
+        self._bootstrapped = False
+        if auto_bootstrap:
+            self.bootstrap()
+
+    def bootstrap(self, on_step: Callable[[str], None] | None = None) -> None:
+        """Initialize core services. Safe to call once."""
+        if self._bootstrapped:
+            return
+
+        def step(label: str) -> None:
+            if on_step is not None:
+                on_step(label)
+
+        step("Storage")
         self.storage = build_storage()
         self.config = self.storage.config
+
+        step("Channels")
         self.channels = ChannelService(self.storage, self.config)
+
+        step("Projects")
         self.projects = ProjectService(self.config)
+
+        step("Project Intelligence")
+        from app.projects import project_intelligence as _project_intelligence  # noqa: F401
+
+        step("Ready")
+        self._bootstrapped = True
+
+    def set_notification_host(self, host) -> None:
+        self._notification_host = host
+
+    def show_notification(self, title: str, message: str = "") -> None:
+        host = self._notification_host
+        if host is not None:
+            host.show_toast(title, message)

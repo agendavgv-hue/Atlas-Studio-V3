@@ -1,6 +1,9 @@
-"""Dashboard placeholder page."""
+"""Dashboard welcome page."""
 
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+
+from app.ui.branding.identity import APP_NAME, VERSION
+from app.ui.widgets.empty_state import EmptyState
 
 
 class DashboardPage(QWidget):
@@ -11,12 +14,18 @@ class DashboardPage(QWidget):
         title = QLabel("Dashboard")
         title.setObjectName("PageTitle")
 
-        subtitle = QLabel("Overview will appear here.")
+        subtitle = QLabel(f"{APP_NAME} {VERSION}")
         subtitle.setObjectName("PageSubtitle")
 
+        empty = EmptyState()
+        empty.configure(
+            "Welcome to Atlas Studio",
+            "Select a channel, create a project, and produce through one clear workflow.",
+        )
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(8)
+        layout.setContentsMargins(36, 36, 36, 36)
+        layout.setSpacing(12)
         layout.addWidget(title)
         layout.addWidget(subtitle)
-        layout.addStretch()
+        layout.addWidget(empty, stretch=1)

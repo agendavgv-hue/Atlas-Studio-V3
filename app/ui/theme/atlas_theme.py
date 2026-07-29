@@ -1,20 +1,20 @@
-"""Atlas Studio dark theme."""
+"""Atlas Studio dark theme — premium gold accent."""
 
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 
-# Deep studio palette — restrained, production-focused
 COLORS = {
-    "bg_deep": "#0E1116",
-    "bg_panel": "#151A21",
-    "bg_elevated": "#1C232D",
-    "bg_hover": "#243040",
-    "border": "#2A3441",
-    "text": "#E8EEF5",
-    "text_muted": "#8B9AAB",
-    "accent": "#3D9CF0",
-    "accent_dim": "#2A6FA8",
+    "bg_deep": "#0B0D10",
+    "bg_panel": "#12151A",
+    "bg_elevated": "#1A1F27",
+    "bg_hover": "#242A33",
+    "border": "#2C333D",
+    "text": "#F4F1EA",
+    "text_muted": "#9AA3AD",
+    "accent": "#C6A75E",
+    "accent_dim": "#8F7840",
+    "accent_soft": "#3A3426",
 }
 
 
@@ -35,7 +35,7 @@ def build_palette() -> QPalette:
     palette.setColor(QPalette.ColorRole.Button, QColor(COLORS["bg_elevated"]))
     palette.setColor(QPalette.ColorRole.ButtonText, text)
     palette.setColor(QPalette.ColorRole.Highlight, accent)
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#0B0D10"))
     palette.setColor(QPalette.ColorRole.PlaceholderText, muted)
     palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(COLORS["bg_elevated"]))
     palette.setColor(QPalette.ColorRole.ToolTipText, text)
@@ -57,10 +57,17 @@ def stylesheet() -> str:
 
     QLabel#SidebarLogo {{
         color: {c["text"]};
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 700;
-        letter-spacing: 2px;
-        padding: 20px 16px 24px 16px;
+        letter-spacing: 2.4px;
+        padding: 22px 18px 8px 18px;
+    }}
+
+    QLabel#SidebarTagline {{
+        color: {c["accent"]};
+        font-size: 10px;
+        letter-spacing: 1.6px;
+        padding: 0 18px 20px 18px;
     }}
 
     QFrame#Sidebar {{
@@ -72,10 +79,10 @@ def stylesheet() -> str:
         background-color: transparent;
         color: {c["text_muted"]};
         border: none;
-        border-radius: 6px;
+        border-radius: 8px;
         text-align: left;
-        padding: 10px 14px;
-        margin: 2px 10px;
+        padding: 11px 14px;
+        margin: 2px 12px;
         font-size: 13px;
         font-weight: 500;
     }}
@@ -86,7 +93,7 @@ def stylesheet() -> str:
     }}
 
     QPushButton[navButton="true"]:checked {{
-        background-color: {c["bg_elevated"]};
+        background-color: {c["accent_soft"]};
         color: {c["text"]};
         border-left: 3px solid {c["accent"]};
         padding-left: 11px;
@@ -94,8 +101,9 @@ def stylesheet() -> str:
 
     QLabel#PageTitle {{
         color: {c["text"]};
-        font-size: 22px;
+        font-size: 24px;
         font-weight: 600;
+        letter-spacing: 0.2px;
     }}
 
     QLabel#PageSubtitle {{
@@ -111,27 +119,37 @@ def stylesheet() -> str:
         background-color: {c["bg_panel"]};
         color: {c["text"]};
         border: 1px solid {c["border"]};
-        border-radius: 6px;
-        padding: 8px 10px;
+        border-radius: 8px;
+        padding: 9px 12px;
         selection-background-color: {c["accent"]};
+        selection-color: #0B0D10;
+    }}
+
+    QLineEdit:focus {{
+        border: 1px solid {c["accent_dim"]};
     }}
 
     QListWidget {{
         background-color: {c["bg_panel"]};
         color: {c["text"]};
         border: 1px solid {c["border"]};
-        border-radius: 8px;
-        padding: 4px;
+        border-radius: 10px;
+        padding: 6px;
         outline: none;
     }}
 
     QListWidget::item {{
-        padding: 10px 12px;
-        border-radius: 4px;
+        padding: 11px 12px;
+        border-radius: 6px;
+        margin: 1px 0;
+    }}
+
+    QListWidget::item:hover {{
+        background-color: {c["bg_hover"]};
     }}
 
     QListWidget::item:selected {{
-        background-color: {c["bg_elevated"]};
+        background-color: {c["accent_soft"]};
         color: {c["text"]};
         border-left: 3px solid {c["accent"]};
     }}
@@ -140,12 +158,94 @@ def stylesheet() -> str:
         background-color: {c["bg_elevated"]};
         color: {c["text"]};
         border: 1px solid {c["border"]};
-        border-radius: 6px;
-        padding: 8px 14px;
+        border-radius: 8px;
+        padding: 9px 16px;
     }}
 
     QPushButton:hover {{
         background-color: {c["bg_hover"]};
+        border-color: {c["accent_dim"]};
+    }}
+
+    QPushButton#PrimaryButton {{
+        background-color: {c["accent_soft"]};
+        border: 1px solid {c["accent_dim"]};
+        color: {c["text"]};
+        padding: 10px 18px;
+    }}
+
+    QPushButton#PrimaryButton:hover {{
+        background-color: {c["bg_hover"]};
+        border-color: {c["accent"]};
+    }}
+
+    QFrame#EmptyState {{
+        background-color: {c["bg_panel"]};
+        border: 1px solid {c["border"]};
+        border-radius: 12px;
+    }}
+
+    QLabel#EmptyStateTitle {{
+        color: {c["text"]};
+        font-size: 18px;
+        font-weight: 600;
+    }}
+
+    QLabel#EmptyStateMessage {{
+        color: {c["text_muted"]};
+        font-size: 13px;
+    }}
+
+    QWidget#SplashScreen {{
+        background-color: {c["bg_deep"]};
+        border: 1px solid {c["border"]};
+        border-radius: 14px;
+    }}
+
+    QLabel#SplashTitle {{
+        color: {c["text"]};
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: 1px;
+    }}
+
+    QLabel#SplashVersion {{
+        color: {c["accent"]};
+        font-size: 12px;
+        letter-spacing: 1px;
+    }}
+
+    QLabel#SplashStatus {{
+        color: {c["text_muted"]};
+        font-size: 12px;
+    }}
+
+    QLabel#SplashSteps {{
+        color: {c["text"]};
+        font-size: 12px;
+        line-height: 1.5;
+        padding-left: 8px;
+    }}
+
+    QFrame#Toast {{
+        background-color: {c["bg_elevated"]};
+        border: 1px solid {c["accent_dim"]};
+        border-radius: 10px;
+    }}
+
+    QLabel#ToastTitle {{
+        color: {c["text"]};
+        font-size: 13px;
+        font-weight: 600;
+    }}
+
+    QLabel#ToastMessage {{
+        color: {c["text_muted"]};
+        font-size: 12px;
+    }}
+
+    QDialog {{
+        background-color: {c["bg_deep"]};
     }}
     """
 

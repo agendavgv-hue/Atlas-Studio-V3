@@ -1,4 +1,4 @@
-"""Settings page — Project Root configuration (Phase 2 minimal)."""
+"""Settings page — Project Root configuration and About."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.atlas_application import AtlasApplication
+from app.ui.dialogs.about_dialog import AboutDialog
 
 
 class SettingsPage(QWidget):
@@ -40,7 +41,11 @@ class SettingsPage(QWidget):
         browse_button.clicked.connect(self._browse)
 
         save_button = QPushButton("Save Project Root")
+        save_button.setObjectName("PrimaryButton")
         save_button.clicked.connect(self._save)
+
+        about_button = QPushButton("About Atlas Studio")
+        about_button.clicked.connect(self.open_about)
 
         row = QHBoxLayout()
         row.addWidget(self._root_input, stretch=1)
@@ -50,7 +55,7 @@ class SettingsPage(QWidget):
         self._status.setObjectName("PageSubtitle")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
+        layout.setContentsMargins(36, 36, 36, 36)
         layout.setSpacing(12)
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -58,12 +63,17 @@ class SettingsPage(QWidget):
         layout.addWidget(root_label)
         layout.addLayout(row)
         layout.addWidget(save_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addSpacing(24)
+        layout.addWidget(about_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._status)
         layout.addStretch()
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         self._load_current()
+
+    def open_about(self) -> None:
+        AboutDialog(self).exec()
 
     def _app(self) -> AtlasApplication | None:
         instance = AtlasApplication.instance()
@@ -101,3 +111,4 @@ class SettingsPage(QWidget):
             return
         self._root_input.setText(str(resolved))
         self._status.setText(f"Saved Project Root: {resolved}")
+        app.show_notification("Project Root Saved", str(resolved))

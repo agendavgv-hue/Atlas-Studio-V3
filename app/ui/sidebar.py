@@ -8,6 +8,7 @@ class Sidebar(QFrame):
     """Left navigation rail for Atlas Studio."""
 
     page_requested = Signal(str)
+    about_requested = Signal()
 
     NAV_ITEMS = (
         ("dashboard", "Dashboard"),
@@ -19,15 +20,19 @@ class Sidebar(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(220)
+        self.setFixedWidth(228)
 
         logo = QLabel("ATLAS STUDIO")
         logo.setObjectName("SidebarLogo")
+
+        tagline = QLabel("V3")
+        tagline.setObjectName("SidebarTagline")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 8, 0, 16)
         layout.setSpacing(4)
         layout.addWidget(logo)
+        layout.addWidget(tagline)
 
         self._buttons: dict[str, QPushButton] = {}
         for key, label in self.NAV_ITEMS:
@@ -41,6 +46,12 @@ class Sidebar(QFrame):
             layout.addWidget(button)
 
         layout.addStretch()
+
+        about = QPushButton("About")
+        about.setProperty("navButton", True)
+        about.clicked.connect(self.about_requested.emit)
+        layout.addWidget(about)
+
         self.set_active("dashboard")
 
     def _on_nav(self, key: str) -> None:

@@ -17,10 +17,11 @@ from PySide6.QtWidgets import (
 
 from app.atlas_application import AtlasApplication
 from app.core.project_root import ProjectRootError, is_project_root_configured
+from app.ui.widgets.empty_state import EmptyState
 
 
 class ProjectsPage(QWidget):
-    project_open_requested = Signal(str, str)  # channel_name, project_folder
+    project_open_requested = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -35,6 +36,8 @@ class ProjectsPage(QWidget):
         self._list = QListWidget()
         self._list.itemDoubleClicked.connect(self._open_selected)
 
+        self._empty = EmptyState()
+
         self._name_input = QLineEdit()
         self._name_input.setPlaceholderText("Project title (number assigned automatically)")
 
@@ -43,6 +46,7 @@ class ProjectsPage(QWidget):
         self._idea_input.returnPressed.connect(self._create_project)
 
         create_button = QPushButton("Create Project")
+        create_button.setObjectName("PrimaryButton")
         create_button.clicked.connect(self._create_project)
 
         open_button = QPushButton("Open")
@@ -69,43 +73,75 @@ class ProjectsPage(QWidget):
         self._status.setObjectName("PageSubtitle")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
+        layout.setContentsMargins(36, 36, 36, 36)
         layout.setSpacing(12)
         layout.addWidget(title)
         layout.addWidget(self._subtitle)
         layout.addWidget(self._list, stretch=1)
+        layout.addWidget(self._empty, stretch=1)
         layout.addLayout(create_row)
         layout.addLayout(action_row)
         layout.addWidget(self._status)
+        self._empty.hide()
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         self.refresh()
 
+    def _focus_create(self) -> None:
+        self._name_input.setFocus()
+
+    def _go_settings(self) -> None:
+        window = self.window()
+        show = getattr(window, "_show_page", None)
+        if callable(show):
+            show("settings")
+
+    def _go_channels(self) -> None:
+        window = self.window()
+        show = getattr(window, "_show_page", None)
+        if callable(show):
+            show("channels")
+
     def _app(self) -> AtlasApplication | None:
         instance = AtlasApplication.instance()
         return instance if isinstance(instance, AtlasApplication) else None
+
+    def _show_list(self, visible: bool) -> None:
+        self._list.setVisible(visible)
+        self._empty.setVisible(not visible)
 
     def refresh(self) -> None:
         app = self._app()
         self._list.clear()
         if app is None:
             self._subtitle.setText("Application is not ready.")
+            self._show_list(False)
             return
 
         if not is_project_root_configured(app.config.project_root):
-            self._subtitle.setText(
-                "Project Root is not set. Choose it in Settings first."
-            )
+            self._subtitle.setText("Project Root is not set.")
             self._status.setText("")
+            self._empty.configure(
+                "No Project Root",
+                "Set your YouTube library folder in Settings before managing projects.",
+                "Open Settings",
+                self._go_settings,
+            )
+            self._show_list(False)
             return
 
         channel = app.channels.active_channel_name
         if not channel:
-            self._subtitle.setText(
-                "No active channel. Open Channels, select a channel, then return here."
-            )
+            self._subtitle.setText("No active channel.")
             self._status.setText("")
+            self._empty.configure(
+                "No Channel selected",
+                "Open Channels, select a channel, then return here to create projects.",
+                "Open Channels",
+                self._go_channels,
+            )
+            self._show_list(False)
             return
 
         try:
@@ -113,6 +149,7 @@ class ProjectsPage(QWidget):
         except (ProjectRootError, OSError) as exc:
             self._subtitle.setText(str(exc))
             self._status.setText("")
+            self._show_list(False)
             return
 
         self._subtitle.setText(f"Channel: {channel}  ·  {len(projects)} project(s)")
@@ -121,10 +158,19 @@ class ProjectsPage(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, project.folder_name)
             self._list.addItem(item)
 
-        if projects:
-            self._status.setText("Double-click a project to open it.")
-        else:
-            self._status.setText("No projects yet. Create one from an idea.")
+        if not projects:
+            self._empty.configure(
+                "No Projects yet",
+                "Create a project from an idea. Numbers are assigned automatically.",
+                "Create Project",
+                self._focus_create,
+            )
+            self._show_list(False)
+            self._status.setText("")
+            return
+
+        self._show_list(True)
+        self._status.setText("Double-click a project to open it.")
 
     def _selected_folder(self) -> str | None:
         items = self._list.selectedItems()
@@ -155,6 +201,7 @@ class ProjectsPage(QWidget):
         self._name_input.clear()
         self._idea_input.clear()
         self.refresh()
+        app.show_notification("Project Created", project.folder_name)
         self.project_open_requested.emit(channel, project.folder_name)
 
     def _open_selected(self) -> None:
@@ -195,3 +242,4 @@ class ProjectsPage(QWidget):
             QMessageBox.warning(self, "Atlas Studio", str(exc))
             return
         self.refresh()
+        app.show_notification("Project Deleted", folder)

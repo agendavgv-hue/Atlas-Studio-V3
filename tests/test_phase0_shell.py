@@ -21,7 +21,7 @@ class Phase0ShellTests(unittest.TestCase):
 
     def test_main_window_creates(self) -> None:
         window = MainWindow()
-        self.assertEqual(window.windowTitle(), "Atlas Studio")
+        self.assertEqual(window.windowTitle(), "Atlas Studio V3")
         self.assertIsInstance(window._sidebar, Sidebar)
         window.close()
 
