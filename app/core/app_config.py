@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths
+
+from app.core.forge_settings import ForgeSettings
 
 
 CONFIG_FILENAME = "config.json"
@@ -35,6 +37,9 @@ class AppConfig:
     project_root: Path | None = None
     text_provider: str | None = None
     gemini_api_key: str = ""
+    gemini_model: str = ""
+    image_provider: str | None = None
+    forge: ForgeSettings = field(default_factory=ForgeSettings)
 
     @classmethod
     def load(cls, default_root: Path | None = None) -> AppConfig:
@@ -68,11 +73,27 @@ class AppConfig:
         if not isinstance(gemini_api_key, str):
             gemini_api_key = ""
 
+        gemini_model = raw.get("gemini_model")
+        if not isinstance(gemini_model, str):
+            gemini_model = ""
+        else:
+            gemini_model = gemini_model.strip()
+
+        image_provider = raw.get("image_provider")
+        if image_provider is not None and not isinstance(image_provider, str):
+            image_provider = None
+
+        forge_raw = raw.get("forge")
+        forge = ForgeSettings.from_mapping(forge_raw if isinstance(forge_raw, dict) else None)
+
         return cls(
             data_root=data_root,
             project_root=project_root,
             text_provider=text_provider,
             gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
+            image_provider=image_provider,
+            forge=forge,
         )
 
     def save(self) -> None:
@@ -85,5 +106,8 @@ class AppConfig:
             ),
             "text_provider": self.text_provider,
             "gemini_api_key": self.gemini_api_key,
+            "gemini_model": self.gemini_model,
+            "image_provider": self.image_provider,
+            "forge": self.forge.to_dict(),
         }
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

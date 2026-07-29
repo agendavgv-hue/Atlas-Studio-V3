@@ -13,6 +13,7 @@ from app.projects.project_numbering import (
     allocate_project_folder_name,
     next_project_number,
     parse_project_number,
+    project_title,
 )
 from app.projects.project_service import ProjectService
 from app.projects.project_template import PROJECT_TEMPLATE_FOLDERS, ensure_project_template
@@ -60,6 +61,8 @@ class ProjectNumberingTests(unittest.TestCase):
         self.assertEqual(parse_project_number("042 - Gobekli Tepe"), 42)
         self.assertIsNone(parse_project_number("Legacy Project"))
         self.assertIsNone(parse_project_number("2024 Recap"))
+        self.assertEqual(project_title("001 - Atlantis"), "Atlantis")
+        self.assertEqual(project_title("Legacy Project"), "Legacy Project")
 
     def test_next_number_from_existing(self) -> None:
         existing = ["001 - Atlantis", "002 - Gobekli Tepe", "Legacy"]
@@ -114,7 +117,9 @@ class ProjectIntelligenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp) / "legacy"
             ensure_project_template(project_dir)
-            (project_dir / "image" / "old.png").write_bytes(b"fake")
+            legacy = project_dir / "image"
+            legacy.mkdir(parents=True, exist_ok=True)
+            (legacy / "old.png").write_bytes(b"fake")
             progress = scan_project_progress(project_dir)
             self.assertTrue(progress.step("images").complete)  # type: ignore[union-attr]
 

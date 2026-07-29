@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QStackedWidget, QStatusBar, QWidget
 
 from app.atlas_application import AtlasApplication
+from app.pipelines.results import PipelineOutcome
 from app.ui.branding.identity import WINDOW_TITLE
 from app.ui.motion.fades import fade_widget
 from app.ui.notifications.notification_host import NotificationHost
@@ -51,11 +52,41 @@ class MainWindow(QMainWindow):
         if isinstance(app, AtlasApplication):
             app.set_notification_host(self._notifications)
 
+        status = QStatusBar()
+        self._global_status = QLabel("Ready")
+        self._global_status.setObjectName("GlobalStatus")
+        status.addWidget(self._global_status, stretch=1)
+        self.setStatusBar(status)
+
+        if isinstance(app, AtlasApplication):
+            app.tasks.status_changed.connect(self._on_global_status)
+            app.tasks.image_finished.connect(self._on_image_finished)
+            self._on_global_status(app.tasks.status)
+
         self._sidebar.page_requested.connect(self._show_page)
         self._sidebar.about_requested.connect(self._settings_page.open_about)
         self._projects_page.project_open_requested.connect(self._open_workspace)
         self._workspace_page.back_requested.connect(lambda: self._show_page("projects"))
         self._show_page("dashboard")
+
+    def _on_global_status(self, text: str) -> None:
+        self._global_status.setText(text)
+        bar = self.statusBar()
+        if bar is not None:
+            bar.showMessage("")
+
+    def _on_image_finished(self, result) -> None:
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        if result.outcome == PipelineOutcome.SUCCESS:
+            app.show_notification("Images Complete", result.message)
+        elif result.outcome == PipelineOutcome.WARNING:
+            app.show_notification("Images Warning", result.message)
+        elif result.outcome == PipelineOutcome.CANCELLED:
+            app.show_notification("Images Cancelled", result.message or "Cancelled")
+        elif result.outcome == PipelineOutcome.FAILED:
+            app.show_notification("Images Failed", result.message)
 
     def _show_page(self, key: str) -> None:
         index = self._page_index.get(key)

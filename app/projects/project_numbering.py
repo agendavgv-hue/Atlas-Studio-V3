@@ -22,6 +22,15 @@ def parse_project_number(folder_name: str) -> int | None:
     return None
 
 
+def project_title(folder_name: str) -> str:
+    """Human title for generation — strips ``001 - `` numbering when present."""
+    raw = folder_name.strip()
+    numbered = _NUMBERED_NAME.match(raw)
+    if numbered:
+        return numbered.group(2).strip()
+    return raw
+
+
 def next_project_number(existing_folder_names: Iterable[str]) -> int:
     numbers = [n for name in existing_folder_names if (n := parse_project_number(name)) is not None]
     return (max(numbers) + 1) if numbers else 1

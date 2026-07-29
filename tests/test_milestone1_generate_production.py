@@ -74,10 +74,12 @@ class GenerateProductionTests(unittest.TestCase):
             fake = FakeTextProvider()
             _, projects, project, engine, context = _setup(Path(tmp), provider=fake)
 
-            result = engine.generate_production(context, topic="Lost city of Atlantis")
+            result = engine.generate_production(context)
 
             self.assertEqual(result.outcome, PipelineOutcome.SUCCESS)
             self.assertEqual(len(fake.calls), 2)
+            # Project title (without numbering) is the generation topic.
+            self.assertIn("Topic: Atlantis", fake.calls[0][1])
             script_path = context.folder(SCRIPT_FOLDER) / SCRIPT_FILENAME
             sheet_path = context.folder(SCRIPT_FOLDER) / PRODUCTION_SHEET_FILENAME
             self.assertTrue(script_path.is_file())
@@ -98,7 +100,7 @@ class GenerateProductionTests(unittest.TestCase):
     def test_missing_provider_returns_configuration_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             _, _, _, engine, context = _setup(Path(tmp), provider=None)
-            result = engine.generate_production(context, topic="Atlantis")
+            result = engine.generate_production(context)
             self.assertEqual(result.outcome, PipelineOutcome.FAILED)
             self.assertTrue(
                 any("provider" in err.casefold() for err in result.errors),
@@ -117,9 +119,10 @@ class GenerateProductionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeTextProvider()
             _, _, _, engine, context = _setup(Path(tmp), provider=fake)
-            result = engine.regenerate_script(context, topic="Atlantis")
+            result = engine.regenerate_script(context)
             self.assertEqual(result.outcome, PipelineOutcome.SUCCESS)
             self.assertEqual(len(fake.calls), 1)
+            self.assertIn("Topic: Atlantis", fake.calls[0][1])
             self.assertTrue((context.folder(SCRIPT_FOLDER) / SCRIPT_FILENAME).is_file())
             self.assertFalse(
                 (context.folder(SCRIPT_FOLDER) / PRODUCTION_SHEET_FILENAME).is_file()
@@ -136,6 +139,32 @@ class GenerateProductionTests(unittest.TestCase):
         self.assertNotIn("return Fake", text)
         self.assertNotIn('provider_id == "mock"', text)
         self.assertNotIn('provider_id == "fake"', text)
+
+    def test_registry_passes_configured_gemini_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AppConfig(
+                data_root=Path(tmp) / "atlas",
+                project_root=Path(tmp) / "yt",
+                text_provider="gemini",
+                gemini_api_key="test-key",
+                gemini_model="models-from-discovery",
+            )
+            provider = ProviderRegistry(config).require_text_provider()
+            self.assertEqual(provider.provider_id, "gemini")
+            self.assertEqual(provider.model, "models-from-discovery")  # type: ignore[attr-defined]
+
+    def test_registry_requires_selected_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = AppConfig(
+                data_root=Path(tmp) / "atlas",
+                project_root=Path(tmp) / "yt",
+                text_provider="gemini",
+                gemini_api_key="test-key",
+                gemini_model="",
+            )
+            with self.assertRaises(ProviderConfigurationError) as ctx:
+                ProviderRegistry(config).require_text_provider()
+            self.assertIn("model", str(ctx.exception).casefold())
 
 
 if __name__ == "__main__":

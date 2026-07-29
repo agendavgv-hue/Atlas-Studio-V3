@@ -138,6 +138,26 @@ def stylesheet() -> str:
         border: 1px solid {c["accent_dim"]};
     }}
 
+    QComboBox {{
+        background-color: {c["bg_panel"]};
+        color: {c["text"]};
+        border: 1px solid {c["border"]};
+        border-radius: 8px;
+        padding: 8px 12px;
+    }}
+
+    QComboBox:hover {{
+        border-color: {c["accent_dim"]};
+    }}
+
+    QComboBox QAbstractItemView {{
+        background-color: {c["bg_elevated"]};
+        color: {c["text"]};
+        border: 1px solid {c["border"]};
+        selection-background-color: {c["accent_soft"]};
+        selection-color: {c["text"]};
+    }}
+
     QListWidget {{
         background-color: {c["bg_panel"]};
         color: {c["text"]};
@@ -253,12 +273,10 @@ def stylesheet() -> str:
         letter-spacing: 0.2px;
     }}
 
-    QLabel#SectionLabel {{
+    QLabel#GlobalStatus {{
         color: {c["text_muted"]};
         font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 1px;
-        text-transform: uppercase;
+        padding-left: 8px;
     }}
 
     QFrame#ProgressCard {{

@@ -95,6 +95,7 @@ class AppConfigTests(unittest.TestCase):
                 loaded = AppConfig.load(default_root=tmp_path / "fallback")
 
             self.assertEqual(loaded.data_root, data_root.resolve())
+            self.assertEqual(loaded.gemini_model, "")
 
 
 class BuildStorageTests(unittest.TestCase):

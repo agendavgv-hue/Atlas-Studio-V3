@@ -10,8 +10,8 @@ from app.atlas_application import AtlasApplication
 from app.main_window import MainWindow
 from app.ui.splash.splash_screen import SplashScreen
 
-# Minimum branding visibility — work still starts immediately.
-_MIN_SPLASH_MS = 1000
+# Minimum branding visibility — bootstrap still starts immediately.
+_MIN_SPLASH_MS = 3000
 
 
 def main() -> int:

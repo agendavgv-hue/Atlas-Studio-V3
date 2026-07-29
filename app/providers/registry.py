@@ -35,7 +35,13 @@ class ProviderRegistry:
                     "Gemini is selected but no API key is set. "
                     "Add your Gemini API key in Settings."
                 )
-            return GeminiTextProvider(key)
+            model = (self._config.gemini_model or "").strip()
+            if not model:
+                raise ProviderConfigurationError(
+                    "No Gemini model is selected. "
+                    "Open Settings, click Test Connection, choose a model, and save."
+                )
+            return GeminiTextProvider(key, model=model)
 
         raise ProviderConfigurationError(
             f"Unsupported text provider '{provider_id}'. "

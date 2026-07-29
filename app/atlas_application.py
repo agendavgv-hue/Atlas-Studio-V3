@@ -11,7 +11,9 @@ from app.core.storage import Storage, build_storage
 from app.pipelines.engine import ProductionEngine
 from app.pipelines.registry import PipelineRegistry
 from app.projects.project_service import ProjectService
+from app.providers.image_registry import ImageProviderRegistry
 from app.providers.registry import ProviderRegistry
+from app.tasks.task_manager import TaskManager
 from app.ui.branding.icons import app_icon
 from app.ui.branding.identity import APP_NAME, ORGANIZATION
 from app.ui.theme.atlas_theme import apply_theme
@@ -24,6 +26,7 @@ class AtlasApplication(QApplication):
     channels: ChannelService
     projects: ProjectService
     production: ProductionEngine
+    tasks: TaskManager
 
     def __init__(self, argv: list[str], *, auto_bootstrap: bool = True) -> None:
         super().__init__(argv)
@@ -34,6 +37,7 @@ class AtlasApplication(QApplication):
         apply_theme(self)
 
         self._notification_host = None
+        self.tasks = TaskManager(self)
         self._bootstrapped = False
         if auto_bootstrap:
             self.bootstrap()
@@ -78,7 +82,9 @@ class AtlasApplication(QApplication):
             self.config,
             registry=registry,
             provider_registry=ProviderRegistry(self.config),
+            image_provider_registry=ImageProviderRegistry(self.config),
         )
+        self.tasks.bind_engine(self.production)
 
     def set_notification_host(self, host) -> None:
         self._notification_host = host

@@ -13,19 +13,25 @@ from app.core.app_config import AppConfig
 from app.core.project_root import require_project_root
 from app.pipelines.base import Pipeline
 from app.pipelines.context import ChannelDefaults, PipelineContext
+from app.pipelines.image_pipeline import ImagePipeline, ProgressCallback
 from app.pipelines.production_sheet_pipeline import ProductionSheetPipeline
 from app.pipelines.registry import PipelineRegistry
 from app.pipelines.results import PipelineOutcome, PipelineResult
 from app.pipelines.script_pipeline import ScriptPipeline
 from app.pipelines.states import PipelineState
 from app.projects.models import Project
+from app.projects.project_numbering import project_title
 from app.projects.project_paths import ProjectPaths
 from app.projects.project_service import ProjectService
 from app.projects.project_status import ProjectProgress
 from app.prompts.assembler import PromptAssembler
 from app.providers.base import TextProvider
 from app.providers.errors import ProviderConfigurationError
+from app.providers.image_base import ImageProvider
+from app.providers.image_registry import ImageProviderRegistry
 from app.providers.registry import ProviderRegistry
+
+QueueProgressCallback = ProgressCallback
 
 
 class ProductionEngine:
@@ -37,17 +43,22 @@ class ProductionEngine:
         config: AppConfig,
         registry: PipelineRegistry | None = None,
         provider_registry: ProviderRegistry | None = None,
+        image_provider_registry: ImageProviderRegistry | None = None,
         *,
         text_provider: TextProvider | None = None,
+        image_provider: ImageProvider | None = None,
         prompts: PromptAssembler | None = None,
     ) -> None:
         self._projects = project_service
         self._config = config
         self.registry = registry or PipelineRegistry()
         self._providers = provider_registry or ProviderRegistry(config)
+        self._image_providers = image_provider_registry or ImageProviderRegistry(config)
         self._text_provider_override = text_provider  # tests only
+        self._image_provider_override = image_provider  # tests only
         self._prompts = prompts or PromptAssembler()
         self._last_progress: ProjectProgress | None = None
+        self._active_pipeline: Pipeline | None = None
         self._register_defaults()
 
     @property
@@ -73,58 +84,74 @@ class ProductionEngine:
             return self._text_provider_override
         return self._providers.require_text_provider()
 
+    def resolve_image_provider(self) -> ImageProvider:
+        if self._image_provider_override is not None:
+            return self._image_provider_override
+        return self._image_providers.require_image_provider()
+
+    def request_cancel(self) -> None:
+        """Cooperative cancel of the active pipeline (after current unit of work)."""
+        active = self._active_pipeline
+        if active is not None:
+            active.cancel()
+
     def execute(self, pipeline: Pipeline, context: PipelineContext) -> PipelineResult:
         """Validate, run, refresh intelligence on success, return structured result."""
         started = time.perf_counter()
+        self._active_pipeline = pipeline
         pipeline._cancel_requested = False
         pipeline._set_state(PipelineState.READY)
         pipeline._set_progress(0.0, "")
         pipeline._set_result(None)
 
-        errors = pipeline.validate(context)
-        if errors:
-            result = PipelineResult.failed(
-                "Validation failed",
-                errors=errors,
-                execution_time_ms=self._elapsed_ms(started),
-            )
-            pipeline._set_state(PipelineState.FAILED)
-            pipeline._set_result(result)
-            return result
-
-        if pipeline.is_cancel_requested():
-            result = PipelineResult.cancelled(execution_time_ms=self._elapsed_ms(started))
-            pipeline._set_state(PipelineState.CANCELLED)
-            pipeline._set_result(result)
-            return result
-
-        pipeline._set_state(PipelineState.RUNNING)
-        pipeline._set_progress(0.0, "Running")
-
         try:
-            result = pipeline.run(context)
-        except Exception as exc:  # noqa: BLE001 — boundary for all pipelines
-            result = PipelineResult.failed(str(exc), errors=[str(exc)])
+            errors = pipeline.validate(context)
+            if errors:
+                result = PipelineResult.failed(
+                    "Validation failed",
+                    errors=errors,
+                    execution_time_ms=self._elapsed_ms(started),
+                )
+                pipeline._set_state(PipelineState.FAILED)
+                pipeline._set_result(result)
+                return result
 
-        if pipeline.is_cancel_requested() and result.outcome != PipelineOutcome.CANCELLED:
-            result = PipelineResult.cancelled(result.message or "Cancelled")
+            if pipeline.is_cancel_requested():
+                result = PipelineResult.cancelled(execution_time_ms=self._elapsed_ms(started))
+                pipeline._set_state(PipelineState.CANCELLED)
+                pipeline._set_result(result)
+                return result
 
-        result.execution_time_ms = self._elapsed_ms(started)
+            pipeline._set_state(PipelineState.RUNNING)
+            pipeline._set_progress(0.0, "Running")
 
-        if result.outcome == PipelineOutcome.CANCELLED:
-            pipeline._set_state(PipelineState.CANCELLED)
-        elif result.outcome == PipelineOutcome.FAILED:
-            pipeline._set_state(PipelineState.FAILED)
-        else:
-            pipeline._set_state(PipelineState.COMPLETED)
+            try:
+                result = pipeline.run(context)
+            except Exception as exc:  # noqa: BLE001 — boundary for all pipelines
+                result = PipelineResult.failed(str(exc), errors=[str(exc)])
 
-        pipeline._set_progress(result.progress, result.message)
-        pipeline._set_result(result)
+            if pipeline.is_cancel_requested() and result.outcome != PipelineOutcome.CANCELLED:
+                result = PipelineResult.cancelled(result.message or "Cancelled")
 
-        if result.ok:
-            self._refresh_intelligence(context)
+            result.execution_time_ms = self._elapsed_ms(started)
 
-        return result
+            if result.outcome == PipelineOutcome.CANCELLED:
+                pipeline._set_state(PipelineState.CANCELLED)
+            elif result.outcome == PipelineOutcome.FAILED:
+                pipeline._set_state(PipelineState.FAILED)
+            else:
+                pipeline._set_state(PipelineState.COMPLETED)
+
+            pipeline._set_progress(result.progress, result.message)
+            pipeline._set_result(result)
+
+            if result.ok:
+                self._refresh_intelligence(context)
+
+            return result
+        finally:
+            if self._active_pipeline is pipeline:
+                self._active_pipeline = None
 
     def execute_chain(
         self,
@@ -156,13 +183,13 @@ class ProductionEngine:
         *,
         topic: str | None = None,
     ) -> PipelineResult:
-        """Primary user workflow: Script → Production Sheet."""
+        """Primary text workflow: Script → Production Sheet."""
         try:
             provider = self.resolve_text_provider()
         except ProviderConfigurationError as exc:
             return PipelineResult.failed(str(exc), errors=[str(exc)])
 
-        topic_value = (topic or context.project.idea or context.project.name).strip()
+        topic_value = self._resolve_topic(context, topic)
         script = ScriptPipeline(provider, self._prompts, topic=topic_value)
         sheet = ProductionSheetPipeline(provider, self._prompts)
         return self.execute_chain([script, sheet], context)
@@ -177,7 +204,7 @@ class ProductionEngine:
             provider = self.resolve_text_provider()
         except ProviderConfigurationError as exc:
             return PipelineResult.failed(str(exc), errors=[str(exc)])
-        topic_value = (topic or context.project.idea or context.project.name).strip()
+        topic_value = self._resolve_topic(context, topic)
         return self.execute(
             ScriptPipeline(provider, self._prompts, topic=topic_value),
             context,
@@ -189,14 +216,60 @@ class ProductionEngine:
         except ProviderConfigurationError as exc:
             return PipelineResult.failed(str(exc), errors=[str(exc)])
 
-        from app.pipelines.artifacts import SCRIPT_FILENAME, SCRIPT_FOLDER
+        from app.artifacts import ArtifactKind, ArtifactResolver
 
-        script_path = context.folder(SCRIPT_FOLDER) / SCRIPT_FILENAME
-        if not script_path.is_file():
-            # Auto-generate script first, then sheet.
+        if not ArtifactResolver(context.project_dir).exists(ArtifactKind.SCRIPT):
             return self.generate_production(context)
 
         return self.execute(ProductionSheetPipeline(provider, self._prompts), context)
+
+    def generate_images(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: QueueProgressCallback | None = None,
+    ) -> PipelineResult:
+        """Generate every image from the production sheet."""
+        try:
+            provider = self.resolve_image_provider()
+        except ProviderConfigurationError as exc:
+            return PipelineResult.failed(str(exc), errors=[str(exc)])
+        pipeline = ImagePipeline(
+            provider,
+            self._prompts,
+            global_negative=self._config.forge.negative_prompt,
+            on_queue_progress=on_queue_progress,
+        )
+        return self.execute(pipeline, context)
+
+    def regenerate_images(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: QueueProgressCallback | None = None,
+    ) -> PipelineResult:
+        return self.generate_images(context, on_queue_progress=on_queue_progress)
+
+    def generate_image(
+        self,
+        context: PipelineContext,
+        index: int,
+        *,
+        on_queue_progress: QueueProgressCallback | None = None,
+    ) -> PipelineResult:
+        """Regenerate a single 1-based image index (future Retry Failed / single regen)."""
+        try:
+            provider = self.resolve_image_provider()
+        except ProviderConfigurationError as exc:
+            return PipelineResult.failed(str(exc), errors=[str(exc)])
+        pipeline = ImagePipeline(
+            provider,
+            self._prompts,
+            global_negative=self._config.forge.negative_prompt,
+            indexes=[index],
+            on_queue_progress=on_queue_progress,
+        )
+        return self.execute(pipeline, context)
 
     def execute_registered(
         self,
@@ -207,8 +280,6 @@ class ProductionEngine:
         return self.execute(pipeline, context)
 
     def _register_defaults(self) -> None:
-        # Factories require a provider at create-time — register lazy wrappers later
-        # via execute_registered when Job Queue lands. Milestone 1 uses generate_*.
         return
 
     def _refresh_intelligence(self, context: PipelineContext) -> None:
@@ -216,6 +287,12 @@ class ProductionEngine:
             context.channel_name,
             context.project_name,
         )
+
+    @staticmethod
+    def _resolve_topic(context: PipelineContext, topic: str | None) -> str:
+        if topic and topic.strip():
+            return topic.strip()
+        return project_title(context.project.name) or context.project.name.strip()
 
     @staticmethod
     def _elapsed_ms(started: float) -> float:

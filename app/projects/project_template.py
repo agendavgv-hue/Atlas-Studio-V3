@@ -11,7 +11,6 @@ PROJECT_TEMPLATE_FOLDERS: tuple[str, ...] = (
     "input",
     "mp3",
     "script",
-    "image",
     "images",
     "insta",
     "mp4",

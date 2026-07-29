@@ -75,6 +75,8 @@ class WorkspaceUxTests(unittest.TestCase):
                 self.assertEqual(page._meta.text(), f"{channel} • Draft")
                 self.assertNotIn("Idea", page._meta.text())
                 self.assertNotIn("should not show", page._meta.text())
+                self.assertFalse(hasattr(page, "_topic"))
+                self.assertEqual(page._generate.text(), "Generate Production")
             finally:
                 self.app.projects = old_projects
                 self.app.config.project_root = old_root

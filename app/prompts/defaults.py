@@ -15,5 +15,11 @@ PRODUCTION_SHEET_PIPELINE_INSTRUCTION = (
     "Convert the narration script into a production sheet. "
     "List scenes in order. For each scene include: Scene number, "
     "Narration excerpt, Visual description, and Suggested duration. "
-    "Use a plain-text layout that is easy to read."
+    "Use a plain-text layout that is easy to read. "
+    "For each scene also include an image prompt line in the form "
+    "'Image Prompt: …' suitable for Stable Diffusion."
+)
+
+GLOBAL_IMAGE_STYLE = (
+    "cinematic still, highly detailed, professional lighting"
 )
