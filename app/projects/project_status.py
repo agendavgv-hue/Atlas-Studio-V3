@@ -10,11 +10,15 @@ class ProgressStep:
     key: str
     label: str
     complete: bool
+    running: bool = False  # Reserved for future Job Queue
 
     @property
-    def display(self) -> str:
-        mark = "✔" if self.complete else "✖"
-        return f"{mark} {self.label}"
+    def state(self) -> str:
+        if self.running:
+            return "running"
+        if self.complete:
+            return "complete"
+        return "missing"
 
 
 @dataclass(frozen=True)
@@ -28,14 +32,14 @@ class ProjectProgress:
         return None
 
 
-# Ordered progress keys shown in workspace / future dashboard.
+# Workspace order — production progress only.
 PROGRESS_STEP_DEFINITIONS: tuple[tuple[str, str], ...] = (
     ("script", "Script"),
     ("production_sheet", "Production Sheet"),
     ("images", "Images"),
     ("instagram", "Instagram"),
-    ("movie", "Movie"),
     ("shorts", "Shorts"),
+    ("movie", "Movie"),
     ("thumbnail", "Thumbnail"),
     ("youtube_export", "YouTube Export"),
 )

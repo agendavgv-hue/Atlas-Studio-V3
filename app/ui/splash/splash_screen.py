@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.ui.branding.icons import create_logo_pixmap
-from app.ui.branding.identity import APP_NAME, VERSION
+from app.ui.branding.identity import VERSION, WINDOW_TITLE
+from app.ui.branding.status_icons import status_icon_pixmap
 from app.ui.motion.fades import fade_window
 
 
@@ -24,7 +25,7 @@ class SplashScreen(QWidget):
         logo.setPixmap(create_logo_pixmap(120))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title = QLabel(APP_NAME)
+        title = QLabel(WINDOW_TITLE)
         title.setObjectName("SplashTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -36,10 +37,10 @@ class SplashScreen(QWidget):
         self._status.setObjectName("SplashStatus")
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._steps = QLabel("")
-        self._steps.setObjectName("SplashSteps")
-        self._steps.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self._step_lines: list[str] = []
+        self._steps_host = QWidget()
+        self._steps_layout = QVBoxLayout(self._steps_host)
+        self._steps_layout.setContentsMargins(24, 0, 24, 0)
+        self._steps_layout.setSpacing(6)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 40, 36, 36)
@@ -50,7 +51,7 @@ class SplashScreen(QWidget):
         layout.addWidget(version)
         layout.addSpacing(18)
         layout.addWidget(self._status)
-        layout.addWidget(self._steps)
+        layout.addWidget(self._steps_host)
         layout.addStretch()
 
     def show_centered(self) -> None:
@@ -67,8 +68,22 @@ class SplashScreen(QWidget):
         fade_window(self, start=0.0, end=1.0, duration_ms=160)
 
     def mark_step(self, label: str) -> None:
-        self._step_lines.append(f"✔ {label}")
-        self._steps.setText("\n".join(self._step_lines))
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+
+        icon = QLabel()
+        icon.setPixmap(status_icon_pixmap("complete", 14))
+        icon.setFixedSize(16, 16)
+
+        text = QLabel(label)
+        text.setObjectName("SplashSteps")
+
+        row_layout.addWidget(icon)
+        row_layout.addWidget(text)
+        row_layout.addStretch()
+        self._steps_layout.addWidget(row)
         self._status.setText("Initializing...")
 
     def mark_ready(self) -> None:

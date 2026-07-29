@@ -55,12 +55,17 @@ def stylesheet() -> str:
         font-size: 13px;
     }}
 
+    QLabel#SidebarLogoImage {{
+        padding: 8px 18px 0 18px;
+        background: transparent;
+    }}
+
     QLabel#SidebarLogo {{
         color: {c["text"]};
         font-size: 14px;
         font-weight: 700;
         letter-spacing: 2.4px;
-        padding: 22px 18px 8px 18px;
+        padding: 8px 18px 0 18px;
     }}
 
     QLabel#SidebarTagline {{
@@ -220,11 +225,34 @@ def stylesheet() -> str:
         font-size: 12px;
     }}
 
-    QLabel#SplashSteps {{
-        color: {c["text"]};
+    QLabel#SectionLabel {{
+        color: {c["text_muted"]};
         font-size: 12px;
-        line-height: 1.5;
-        padding-left: 8px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }}
+
+    QFrame#ProgressCard {{
+        background-color: {c["bg_panel"]};
+        border: 1px solid {c["border"]};
+        border-radius: 12px;
+    }}
+
+    QWidget#ProgressRow {{
+        background-color: transparent;
+        border-bottom: 1px solid {c["border"]};
+    }}
+
+    QLabel#ProgressLabel {{
+        color: {c["text"]};
+        font-size: 14px;
+        font-weight: 500;
+    }}
+
+    QScrollArea#ProgressScroll {{
+        background: transparent;
+        border: none;
     }}
 
     QFrame#Toast {{
