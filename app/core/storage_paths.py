@@ -1,0 +1,61 @@
+"""Resolve Atlas Studio storage directories from a data root."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+# Single source of truth for top-level directory names (Blueprint layout).
+CHANNELS = "Channels"
+PROJECTS = "Projects"
+ASSETS = "Assets"
+CACHE = "Cache"
+EXPORTS = "Exports"
+LOGS = "Logs"
+
+MANAGED_DIRECTORIES: tuple[str, ...] = (
+    CHANNELS,
+    PROJECTS,
+    ASSETS,
+    CACHE,
+    EXPORTS,
+    LOGS,
+)
+
+
+class StoragePaths:
+    """Path resolver for the Atlas Studio data root and its children."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root.expanduser().resolve()
+
+    @property
+    def root(self) -> Path:
+        return self._root
+
+    @property
+    def channels(self) -> Path:
+        return self._root / CHANNELS
+
+    @property
+    def projects(self) -> Path:
+        return self._root / PROJECTS
+
+    @property
+    def assets(self) -> Path:
+        return self._root / ASSETS
+
+    @property
+    def cache(self) -> Path:
+        return self._root / CACHE
+
+    @property
+    def exports(self) -> Path:
+        return self._root / EXPORTS
+
+    @property
+    def logs(self) -> Path:
+        return self._root / LOGS
+
+    def all_directories(self) -> tuple[Path, ...]:
+        return tuple(self._root / name for name in MANAGED_DIRECTORIES)
