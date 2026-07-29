@@ -11,6 +11,7 @@ from app.core.storage import Storage, build_storage
 from app.pipelines.engine import ProductionEngine
 from app.pipelines.registry import PipelineRegistry
 from app.projects.project_service import ProjectService
+from app.providers.registry import ProviderRegistry
 from app.ui.branding.icons import app_icon
 from app.ui.branding.identity import APP_NAME, ORGANIZATION
 from app.ui.theme.atlas_theme import apply_theme
@@ -60,13 +61,24 @@ class AtlasApplication(QApplication):
         from app.projects import project_intelligence as _project_intelligence  # noqa: F401
 
         step("Production Engine")
-        self.production = ProductionEngine(
-            self.projects,
-            registry=PipelineRegistry(),
-        )
+        self.rebuild_production_engine()
 
         step("Ready")
         self._bootstrapped = True
+
+    def rebuild_production_engine(self) -> None:
+        """Recreate ProductionEngine after AI settings change."""
+        registry = (
+            self.production.registry
+            if getattr(self, "production", None) is not None
+            else PipelineRegistry()
+        )
+        self.production = ProductionEngine(
+            self.projects,
+            self.config,
+            registry=registry,
+            provider_registry=ProviderRegistry(self.config),
+        )
 
     def set_notification_host(self, host) -> None:
         self._notification_host = host

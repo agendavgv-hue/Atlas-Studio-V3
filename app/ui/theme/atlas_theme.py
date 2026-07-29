@@ -188,6 +188,18 @@ def stylesheet() -> str:
         border-color: {c["accent"]};
     }}
 
+    QPushButton#SecondaryButton {{
+        background-color: transparent;
+        color: {c["text_muted"]};
+        border: 1px solid {c["border"]};
+    }}
+
+    QPushButton#SecondaryButton:hover {{
+        color: {c["text"]};
+        border-color: {c["accent_dim"]};
+        background-color: {c["bg_hover"]};
+    }}
+
     QFrame#EmptyState {{
         background-color: {c["bg_panel"]};
         border: 1px solid {c["border"]};

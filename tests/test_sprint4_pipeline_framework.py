@@ -27,7 +27,7 @@ def _engine(tmp: Path) -> tuple[ProductionEngine, Project, PipelineContext]:
     Storage(config).ensure_structure()
     projects = ProjectService(config)
     created = projects.create_project(channel, "Atlantis")
-    engine = ProductionEngine(projects)
+    engine = ProductionEngine(projects, config)
     context = engine.build_context(
         created,
         channel_defaults=ChannelDefaults(

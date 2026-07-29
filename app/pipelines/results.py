@@ -20,6 +20,7 @@ class PipelineResult:
     errors: list[str] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
     progress: float = 0.0
+    execution_time_ms: float = 0.0
 
     @property
     def ok(self) -> bool:
@@ -32,12 +33,14 @@ class PipelineResult:
         *,
         artifacts: list[str] | None = None,
         progress: float = 1.0,
+        execution_time_ms: float = 0.0,
     ) -> PipelineResult:
         return cls(
             outcome=PipelineOutcome.SUCCESS,
             message=message,
             artifacts=list(artifacts or []),
             progress=progress,
+            execution_time_ms=execution_time_ms,
         )
 
     @classmethod
@@ -48,6 +51,7 @@ class PipelineResult:
         errors: list[str] | None = None,
         artifacts: list[str] | None = None,
         progress: float = 1.0,
+        execution_time_ms: float = 0.0,
     ) -> PipelineResult:
         return cls(
             outcome=PipelineOutcome.WARNING,
@@ -55,6 +59,7 @@ class PipelineResult:
             errors=list(errors or []),
             artifacts=list(artifacts or []),
             progress=progress,
+            execution_time_ms=execution_time_ms,
         )
 
     @classmethod
@@ -64,14 +69,26 @@ class PipelineResult:
         *,
         errors: list[str] | None = None,
         progress: float = 0.0,
+        execution_time_ms: float = 0.0,
     ) -> PipelineResult:
         return cls(
             outcome=PipelineOutcome.FAILED,
             message=message,
             errors=list(errors or [message]),
             progress=progress,
+            execution_time_ms=execution_time_ms,
         )
 
     @classmethod
-    def cancelled(cls, message: str = "Cancelled") -> PipelineResult:
-        return cls(outcome=PipelineOutcome.CANCELLED, message=message, progress=0.0)
+    def cancelled(
+        cls,
+        message: str = "Cancelled",
+        *,
+        execution_time_ms: float = 0.0,
+    ) -> PipelineResult:
+        return cls(
+            outcome=PipelineOutcome.CANCELLED,
+            message=message,
+            progress=0.0,
+            execution_time_ms=execution_time_ms,
+        )

@@ -132,6 +132,14 @@ class ProjectService:
 
         return derive_lifecycle_status(self.get_progress(channel_name, name))
 
+    def update_idea(self, channel_name: str, name: str, idea: str) -> Project:
+        paths = self._paths(channel_name)
+        store = ProjectStore(paths)
+        project = store.ensure_default(name.strip())
+        project.idea = idea.strip()
+        store.save(project)
+        return project
+
     def delete_project(self, channel_name: str, name: str) -> None:
         paths = self._paths(channel_name)
         folder = name.strip()
