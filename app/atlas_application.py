@@ -4,14 +4,16 @@ from PySide6.QtWidgets import QApplication
 
 from app.channels.channel_service import ChannelService
 from app.core.storage import Storage, build_storage
+from app.projects.project_service import ProjectService
 from app.ui.theme.atlas_theme import apply_theme
 
 
 class AtlasApplication(QApplication):
-    """Owns application lifecycle, theme, storage, and channels."""
+    """Owns application lifecycle, theme, storage, channels, and projects."""
 
     storage: Storage
     channels: ChannelService
+    projects: ProjectService
 
     def __init__(self, argv: list[str]) -> None:
         super().__init__(argv)
@@ -23,3 +25,4 @@ class AtlasApplication(QApplication):
         self.storage = build_storage()
         self.config = self.storage.config
         self.channels = ChannelService(self.storage, self.config)
+        self.projects = ProjectService(self.config)

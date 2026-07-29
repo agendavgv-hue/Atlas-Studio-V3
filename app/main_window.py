@@ -3,6 +3,7 @@
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QWidget
 
 from app.ui.pages import ChannelsPage, DashboardPage, ProjectsPage, SettingsPage
+from app.ui.pages.project_workspace_page import ProjectWorkspacePage
 from app.ui.sidebar import Sidebar
 
 
@@ -21,10 +22,14 @@ class MainWindow(QMainWindow):
         self._sidebar = Sidebar()
         self._pages = QStackedWidget()
 
+        self._projects_page = ProjectsPage()
+        self._workspace_page = ProjectWorkspacePage()
+
         self._page_index = {
             "dashboard": self._pages.addWidget(DashboardPage()),
             "channels": self._pages.addWidget(ChannelsPage()),
-            "projects": self._pages.addWidget(ProjectsPage()),
+            "projects": self._pages.addWidget(self._projects_page),
+            "project_workspace": self._pages.addWidget(self._workspace_page),
             "settings": self._pages.addWidget(SettingsPage()),
         }
 
@@ -35,13 +40,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._pages, stretch=1)
 
         self._sidebar.page_requested.connect(self._show_page)
+        self._projects_page.project_open_requested.connect(self._open_workspace)
+        self._workspace_page.back_requested.connect(lambda: self._show_page("projects"))
         self._show_page("dashboard")
 
     def _show_page(self, key: str) -> None:
         index = self._page_index.get(key)
         if index is not None:
             self._pages.setCurrentIndex(index)
-            self._sidebar.set_active(key)
+            # Workspace is reached from Projects; keep Projects nav highlighted.
+            nav_key = "projects" if key == "project_workspace" else key
+            if nav_key in {"dashboard", "channels", "projects", "settings"}:
+                self._sidebar.set_active(nav_key)
+
+    def _open_workspace(self, channel_name: str, project_folder: str) -> None:
+        self._workspace_page.load_project(channel_name, project_folder)
+        self._show_page("project_workspace")
 
     def current_page_key(self) -> str:
         current = self._pages.currentIndex()
