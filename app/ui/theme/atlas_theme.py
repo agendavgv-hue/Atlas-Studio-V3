@@ -106,6 +106,47 @@ def stylesheet() -> str:
     QFrame#PageFrame {{
         background-color: {c["bg_deep"]};
     }}
+
+    QLineEdit {{
+        background-color: {c["bg_panel"]};
+        color: {c["text"]};
+        border: 1px solid {c["border"]};
+        border-radius: 6px;
+        padding: 8px 10px;
+        selection-background-color: {c["accent"]};
+    }}
+
+    QListWidget {{
+        background-color: {c["bg_panel"]};
+        color: {c["text"]};
+        border: 1px solid {c["border"]};
+        border-radius: 8px;
+        padding: 4px;
+        outline: none;
+    }}
+
+    QListWidget::item {{
+        padding: 10px 12px;
+        border-radius: 4px;
+    }}
+
+    QListWidget::item:selected {{
+        background-color: {c["bg_elevated"]};
+        color: {c["text"]};
+        border-left: 3px solid {c["accent"]};
+    }}
+
+    QPushButton {{
+        background-color: {c["bg_elevated"]};
+        color: {c["text"]};
+        border: 1px solid {c["border"]};
+        border-radius: 6px;
+        padding: 8px 14px;
+    }}
+
+    QPushButton:hover {{
+        background-color: {c["bg_hover"]};
+    }}
     """
 
 
