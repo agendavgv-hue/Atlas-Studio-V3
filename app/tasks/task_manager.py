@@ -8,23 +8,36 @@ from app.pipelines.context import PipelineContext
 from app.pipelines.engine import ProductionEngine
 from app.pipelines.image_progress import ImageQueueProgress
 from app.pipelines.results import PipelineOutcome, PipelineResult
+from app.pipelines.voice_progress import VoiceQueueProgress
+from app.render.progress import MovieQueueProgress
 from app.tasks.image_worker import ImageGenerationWorker
+from app.tasks.movie_worker import MovieGenerationWorker
+from app.tasks.voice_worker import VoiceGenerationWorker
 
 
 class TaskManager(QObject):
     """Central owner of long-running production work."""
 
     status_changed = Signal(str)
-    image_progress = Signal(object)  # ImageQueueProgress
-    image_finished = Signal(object)  # PipelineResult
+    image_progress = Signal(object)
+    image_finished = Signal(object)
     image_running_changed = Signal(bool)
+    voice_progress = Signal(object)
+    voice_finished = Signal(object)
+    voice_running_changed = Signal(bool)
+    movie_progress = Signal(object)
+    movie_finished = Signal(object)
+    movie_running_changed = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._engine: ProductionEngine | None = None
         self._thread: QThread | None = None
-        self._worker: ImageGenerationWorker | None = None
-        self._image_job: tuple[str, str] | None = None  # channel, folder
+        self._worker: (
+            ImageGenerationWorker | VoiceGenerationWorker | MovieGenerationWorker | None
+        ) = None
+        self._job_kind: str | None = None
+        self._job: tuple[str, str] | None = None
         self._status = "Ready"
         self.status_changed.emit(self._status)
 
@@ -33,12 +46,32 @@ class TaskManager(QObject):
         return self._status
 
     @property
-    def is_images_running(self) -> bool:
+    def is_busy(self) -> bool:
         return self._thread is not None and self._thread.isRunning()
 
     @property
+    def is_images_running(self) -> bool:
+        return self.is_busy and self._job_kind == "images"
+
+    @property
+    def is_voice_running(self) -> bool:
+        return self.is_busy and self._job_kind == "voice"
+
+    @property
+    def is_movie_running(self) -> bool:
+        return self.is_busy and self._job_kind == "movie"
+
+    @property
     def active_image_job(self) -> tuple[str, str] | None:
-        return self._image_job
+        return self._job if self._job_kind == "images" else None
+
+    @property
+    def active_voice_job(self) -> tuple[str, str] | None:
+        return self._job if self._job_kind == "voice" else None
+
+    @property
+    def active_movie_job(self) -> tuple[str, str] | None:
+        return self._job if self._job_kind == "movie" else None
 
     def bind_engine(self, engine: ProductionEngine) -> None:
         self._engine = engine
@@ -51,22 +84,93 @@ class TaskManager(QObject):
         channel_name: str,
         project_folder: str,
     ) -> bool:
-        """Start image generation. Returns False if a job is already running."""
-        if self.is_images_running:
+        if self.is_busy:
             return False
+        return self._start_job(
+            "images",
+            engine,
+            ImageGenerationWorker(engine, context),
+            channel_name,
+            project_folder,
+            status="Generating Images…",
+            running_signal=self.image_running_changed,
+            progress_slot=self._on_image_progress,
+            finished_slot=self._on_image_finished,
+            failed_slot=self._on_image_failed,
+        )
 
+    def start_voice(
+        self,
+        engine: ProductionEngine,
+        context: PipelineContext,
+        *,
+        channel_name: str,
+        project_folder: str,
+    ) -> bool:
+        if self.is_busy:
+            return False
+        return self._start_job(
+            "voice",
+            engine,
+            VoiceGenerationWorker(engine, context),
+            channel_name,
+            project_folder,
+            status="Generating Voice…",
+            running_signal=self.voice_running_changed,
+            progress_slot=self._on_voice_progress,
+            finished_slot=self._on_voice_finished,
+            failed_slot=self._on_voice_failed,
+        )
+
+    def start_movie(
+        self,
+        engine: ProductionEngine,
+        context: PipelineContext,
+        *,
+        channel_name: str,
+        project_folder: str,
+    ) -> bool:
+        if self.is_busy:
+            return False
+        return self._start_job(
+            "movie",
+            engine,
+            MovieGenerationWorker(engine, context),
+            channel_name,
+            project_folder,
+            status="Generating Movie…",
+            running_signal=self.movie_running_changed,
+            progress_slot=self._on_movie_progress,
+            finished_slot=self._on_movie_finished,
+            failed_slot=self._on_movie_failed,
+        )
+
+    def _start_job(
+        self,
+        kind: str,
+        engine: ProductionEngine,
+        worker,
+        channel_name: str,
+        project_folder: str,
+        *,
+        status: str,
+        running_signal,
+        progress_slot,
+        finished_slot,
+        failed_slot,
+    ) -> bool:
         self._engine = engine
-        self._image_job = (channel_name, project_folder)
-        self._set_status("Generating Images…")
-        self.image_running_changed.emit(True)
+        self._job_kind = kind
+        self._job = (channel_name, project_folder)
+        self._set_status(status)
+        running_signal.emit(True)
 
         thread = QThread()
-        worker = ImageGenerationWorker(engine, context)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.progress.connect(self._on_image_progress)
-        worker.finished.connect(self._on_image_finished)
-        worker.failed.connect(self._on_image_failed)
+        worker.progress.connect(progress_slot)
+        worker.finished.connect(finished_slot)
+        worker.failed.connect(failed_slot)
         worker.finished.connect(thread.quit)
         worker.failed.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
@@ -79,43 +183,84 @@ class TaskManager(QObject):
         return True
 
     def stop_images(self) -> None:
-        """Request cooperative cancel after the current image finishes."""
         if self._engine is not None:
             self._engine.request_cancel()
         if self.is_images_running:
             self._set_status("Stopping after current image…")
 
+    def stop_voice(self) -> None:
+        if self._engine is not None:
+            self._engine.request_cancel()
+        if self.is_voice_running:
+            self._set_status("Stopping voice…")
+
+    def stop_movie(self) -> None:
+        if self._engine is not None:
+            self._engine.request_cancel()
+        if self.is_movie_running:
+            self._set_status("Stopping after current scene…")
+
     def is_job_for(self, channel_name: str, project_folder: str) -> bool:
-        return self._image_job == (channel_name, project_folder)
+        return self._job == (channel_name, project_folder)
 
     def _on_image_progress(self, progress: ImageQueueProgress) -> None:
         self._set_status(f"Generating Images ({progress.current} / {progress.total})")
         self.image_progress.emit(progress)
 
     def _on_image_finished(self, result: PipelineResult) -> None:
-        if result.outcome == PipelineOutcome.CANCELLED:
-            self._set_status("Cancelled")
-        elif result.outcome == PipelineOutcome.FAILED:
-            self._set_status("Failed")
-        elif result.outcome == PipelineOutcome.WARNING:
-            self._set_status("Completed")
-        else:
-            self._set_status("Completed")
+        self._set_status(self._status_for_result(result))
         self.image_finished.emit(result)
 
     def _on_image_failed(self, message: str) -> None:
         self._set_status("Failed")
-        failed = PipelineResult.failed(message, errors=[message])
-        self.image_finished.emit(failed)
+        self.image_finished.emit(PipelineResult.failed(message, errors=[message]))
+
+    def _on_voice_progress(self, progress: VoiceQueueProgress) -> None:
+        self._set_status(f"Generating Voice — {progress.message}")
+        self.voice_progress.emit(progress)
+
+    def _on_voice_finished(self, result: PipelineResult) -> None:
+        self._set_status(self._status_for_result(result))
+        self.voice_finished.emit(result)
+
+    def _on_voice_failed(self, message: str) -> None:
+        self._set_status("Failed")
+        self.voice_finished.emit(PipelineResult.failed(message, errors=[message]))
+
+    def _on_movie_progress(self, progress: MovieQueueProgress) -> None:
+        self._set_status(f"Generating Movie ({progress.current} / {progress.total})")
+        self.movie_progress.emit(progress)
+
+    def _on_movie_finished(self, result: PipelineResult) -> None:
+        self._set_status(self._status_for_result(result))
+        self.movie_finished.emit(result)
+
+    def _on_movie_failed(self, message: str) -> None:
+        self._set_status("Failed")
+        self.movie_finished.emit(PipelineResult.failed(message, errors=[message]))
 
     def _on_thread_finished(self) -> None:
+        kind = self._job_kind
         self._thread = None
         self._worker = None
-        self._image_job = None
-        self.image_running_changed.emit(False)
-        # Keep Cancelled/Completed/Failed until next job; Ready only if still "Stopping…"
+        self._job = None
+        self._job_kind = None
+        if kind == "images":
+            self.image_running_changed.emit(False)
+        elif kind == "voice":
+            self.voice_running_changed.emit(False)
+        elif kind == "movie":
+            self.movie_running_changed.emit(False)
         if self._status.startswith("Stopping") or self._status.startswith("Generating"):
             self._set_status("Ready")
+
+    @staticmethod
+    def _status_for_result(result: PipelineResult) -> str:
+        if result.outcome == PipelineOutcome.CANCELLED:
+            return "Cancelled"
+        if result.outcome == PipelineOutcome.FAILED:
+            return "Failed"
+        return "Completed"
 
     def _set_status(self, text: str) -> None:
         self._status = text

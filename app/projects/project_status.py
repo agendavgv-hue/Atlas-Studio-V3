@@ -37,6 +37,7 @@ PROGRESS_STEP_DEFINITIONS: tuple[tuple[str, str], ...] = (
     ("script", "Script"),
     ("production_sheet", "Production Sheet"),
     ("images", "Images"),
+    ("voice", "Voice"),
     ("instagram", "Instagram"),
     ("shorts", "Shorts"),
     ("movie", "Movie"),

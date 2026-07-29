@@ -1,4 +1,4 @@
-"""Settings page — Project Root, AI text provider, Image provider, About."""
+"""Settings page — Project Root, AI text, Image, Voice providers, About."""
 
 from __future__ import annotations
 
@@ -21,9 +21,23 @@ from PySide6.QtWidgets import (
 
 from app.atlas_application import AtlasApplication
 from app.core.forge_settings import ForgeSettings
+from app.core.movie_settings import (
+    MOTION_STYLES,
+    RENDER_PROFILES,
+    TRANSITION_STYLES,
+    MovieSettings,
+)
+from app.core.voice_settings import VoiceSettings
+from app.providers.elevenlabs import ElevenLabsVoiceProvider
 from app.providers.errors import ProviderError
 from app.providers.forge import ForgeImageProvider
 from app.providers.gemini import discover_text_models
+from app.providers.local_voice import (
+    LOCAL_VOICE_PROVIDER_ID,
+    LOCAL_VOICE_PROVIDER_LABEL,
+    LocalVoiceProvider,
+)
+from app.render.ffmpeg import FFmpegProcess
 from app.ui.dialogs.about_dialog import AboutDialog
 
 
@@ -35,7 +49,9 @@ class SettingsPage(QWidget):
         title = QLabel("Settings")
         title.setObjectName("PageTitle")
 
-        subtitle = QLabel("Configure library location, AI text, and image providers.")
+        subtitle = QLabel(
+            "Configure library location, AI text, image, voice, and movie providers."
+        )
         subtitle.setObjectName("PageSubtitle")
 
         root_label = QLabel("Project Root")
@@ -131,6 +147,116 @@ class SettingsPage(QWidget):
         forge_actions.addWidget(save_forge)
         forge_actions.addStretch()
 
+        voice_label = QLabel("Voice Provider")
+        voice_label.setObjectName("SectionLabel")
+
+        self._voice_provider = QComboBox()
+        self._voice_provider.addItem(LOCAL_VOICE_PROVIDER_LABEL, LOCAL_VOICE_PROVIDER_ID)
+        self._voice_provider.addItem("ElevenLabs (Optional)", "elevenlabs")
+        # Future optional cloud plugins: OpenAI, Azure, Google, …
+        self._voice_provider.currentIndexChanged.connect(self._sync_voice_provider_fields)
+
+        self._voice_api_key = QLineEdit()
+        self._voice_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._voice_api_key.setPlaceholderText("Required for cloud providers only")
+
+        self._voice_voice = QComboBox()
+        self._voice_voice.setEditable(True)
+        self._voice_voice.setPlaceholderText("Click Test Connection to load voices")
+
+        self._voice_language = QLineEdit()
+        self._voice_language.setPlaceholderText("e.g. en-US")
+        self._voice_model = QComboBox()
+        self._voice_model.setEditable(True)
+        self._voice_stability = QLineEdit()
+        self._voice_style = QLineEdit()
+        self._voice_speed = QLineEdit()
+        self._voice_similarity = QLineEdit()
+        self._voice_output_format = QLineEdit()
+        self._voice_output_format.setPlaceholderText("mp3 or wav")
+
+        self._voice_hint = QLabel(
+            "Local Voice Engine works offline and requires no subscription. "
+            "Cloud providers are optional."
+        )
+        self._voice_hint.setObjectName("PageSubtitle")
+        self._voice_hint.setWordWrap(True)
+
+        voice_form = QFormLayout()
+        self._voice_api_key_label = QLabel("API Key")
+        voice_form.addRow(self._voice_api_key_label, self._voice_api_key)
+        voice_form.addRow("Voice", self._voice_voice)
+        voice_form.addRow("Language", self._voice_language)
+        self._voice_model_label = QLabel("Model")
+        voice_form.addRow(self._voice_model_label, self._voice_model)
+        self._voice_stability_label = QLabel("Stability")
+        voice_form.addRow(self._voice_stability_label, self._voice_stability)
+        self._voice_style_label = QLabel("Style")
+        voice_form.addRow(self._voice_style_label, self._voice_style)
+        voice_form.addRow("Speed", self._voice_speed)
+        self._voice_similarity_label = QLabel("Similarity")
+        voice_form.addRow(self._voice_similarity_label, self._voice_similarity)
+        voice_form.addRow("Output Format", self._voice_output_format)
+
+        test_voice = QPushButton("Test Connection")
+        test_voice.clicked.connect(self._test_voice)
+        save_voice = QPushButton("Save Voice Settings")
+        save_voice.setObjectName("PrimaryButton")
+        save_voice.clicked.connect(self._save_voice)
+        voice_actions = QHBoxLayout()
+        voice_actions.addWidget(test_voice)
+        voice_actions.addWidget(save_voice)
+        voice_actions.addStretch()
+
+        movie_label = QLabel("Movie Settings")
+        movie_label.setObjectName("SectionLabel")
+
+        self._movie_ffmpeg = QLineEdit()
+        self._movie_ffmpeg.setPlaceholderText("Auto-detect from PATH if empty")
+        self._movie_profile = QComboBox()
+        for profile_id, spec in RENDER_PROFILES.items():
+            self._movie_profile.addItem(spec.label, profile_id)
+        self._movie_transition = QComboBox()
+        for item in TRANSITION_STYLES:
+            self._movie_transition.addItem(item.replace("_", " ").title(), item)
+        self._movie_motion = QComboBox()
+        for item in MOTION_STYLES:
+            self._movie_motion.addItem(item.replace("_", " ").title(), item)
+        self._movie_duration = QLineEdit()
+        self._movie_width = QLineEdit()
+        self._movie_height = QLineEdit()
+        self._movie_fps = QLineEdit()
+        self._movie_codec = QLineEdit()
+        self._movie_preset = QLineEdit()
+        self._movie_crf = QLineEdit()
+        self._movie_keep_scenes = QComboBox()
+        self._movie_keep_scenes.addItem("No (default)", False)
+        self._movie_keep_scenes.addItem("Yes — keep scene renders in mp4/", True)
+
+        movie_form = QFormLayout()
+        movie_form.addRow("FFmpeg Path", self._movie_ffmpeg)
+        movie_form.addRow("Render Profile", self._movie_profile)
+        movie_form.addRow("Transition", self._movie_transition)
+        movie_form.addRow("Scene Animation", self._movie_motion)
+        movie_form.addRow("Default Duration (sec/image)", self._movie_duration)
+        movie_form.addRow("Custom Width", self._movie_width)
+        movie_form.addRow("Custom Height", self._movie_height)
+        movie_form.addRow("FPS", self._movie_fps)
+        movie_form.addRow("Codec", self._movie_codec)
+        movie_form.addRow("Quality Preset", self._movie_preset)
+        movie_form.addRow("CRF", self._movie_crf)
+        movie_form.addRow("Keep Scene Renders", self._movie_keep_scenes)
+
+        test_movie = QPushButton("Test FFmpeg")
+        test_movie.clicked.connect(self._test_ffmpeg)
+        save_movie = QPushButton("Save Movie Settings")
+        save_movie.setObjectName("PrimaryButton")
+        save_movie.clicked.connect(self._save_movie)
+        movie_actions = QHBoxLayout()
+        movie_actions.addWidget(test_movie)
+        movie_actions.addWidget(save_movie)
+        movie_actions.addStretch()
+
         about_button = QPushButton("About Atlas Studio")
         about_button.clicked.connect(self.open_about)
 
@@ -161,6 +287,16 @@ class SettingsPage(QWidget):
         layout.addWidget(self._image_provider)
         layout.addLayout(forge_form)
         layout.addLayout(forge_actions)
+        layout.addSpacing(20)
+        layout.addWidget(voice_label)
+        layout.addWidget(self._voice_provider)
+        layout.addWidget(self._voice_hint)
+        layout.addLayout(voice_form)
+        layout.addLayout(voice_actions)
+        layout.addSpacing(20)
+        layout.addWidget(movie_label)
+        layout.addLayout(movie_form)
+        layout.addLayout(movie_actions)
         layout.addSpacing(24)
         layout.addWidget(about_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._status)
@@ -223,6 +359,51 @@ class SettingsPage(QWidget):
         self._forge_height.setText(str(forge.height))
         self._forge_seed.setText(str(forge.seed))
         self._forge_negative.setText(forge.negative_prompt)
+
+        voice_provider = app.config.voice_provider or LOCAL_VOICE_PROVIDER_ID
+        if voice_provider.casefold() == "kokoro":
+            voice_provider = LOCAL_VOICE_PROVIDER_ID
+        voice_index = self._voice_provider.findData(voice_provider)
+        if voice_index >= 0:
+            self._voice_provider.setCurrentIndex(voice_index)
+
+        voice = app.config.voice
+        self._voice_api_key.setText(voice.api_key)
+        self._set_voice_combo(voice.voice_id, voice.voice_name)
+        self._voice_language.setText(voice.language or "en-US")
+        self._set_combo_models(
+            self._voice_model,
+            [voice.model] if voice.model else [],
+            preferred=voice.model,
+        )
+        self._voice_stability.setText(str(voice.stability))
+        self._voice_style.setText(str(voice.style))
+        self._voice_speed.setText(str(voice.speed))
+        self._voice_similarity.setText(str(voice.similarity))
+        self._voice_output_format.setText(voice.output_format or "mp3")
+        self._sync_voice_provider_fields()
+
+        movie = app.config.movie
+        self._movie_ffmpeg.setText(movie.ffmpeg_path)
+        profile_index = self._movie_profile.findData(movie.profile)
+        if profile_index >= 0:
+            self._movie_profile.setCurrentIndex(profile_index)
+        transition_index = self._movie_transition.findData(movie.transition)
+        if transition_index >= 0:
+            self._movie_transition.setCurrentIndex(transition_index)
+        motion_index = self._movie_motion.findData(movie.motion)
+        if motion_index >= 0:
+            self._movie_motion.setCurrentIndex(motion_index)
+        self._movie_duration.setText(str(movie.default_duration_sec))
+        self._movie_width.setText(str(movie.width))
+        self._movie_height.setText(str(movie.height))
+        self._movie_fps.setText(str(movie.fps))
+        self._movie_codec.setText(movie.codec)
+        self._movie_preset.setText(movie.quality_preset)
+        self._movie_crf.setText(str(movie.crf))
+        keep_index = self._movie_keep_scenes.findData(movie.keep_scene_renders)
+        if keep_index >= 0:
+            self._movie_keep_scenes.setCurrentIndex(keep_index)
 
         if current:
             self._status.setText(f"Current Project Root: {current}")
@@ -358,6 +539,211 @@ class SettingsPage(QWidget):
             f"Image settings saved ({settings.host}:{settings.port}, {settings.width}×{settings.height})."
         )
         app.show_notification("Image Settings Saved", settings.model or "Forge")
+
+    def _selected_voice_provider_id(self) -> str:
+        return str(self._voice_provider.currentData() or LOCAL_VOICE_PROVIDER_ID)
+
+    def _is_local_voice_selected(self) -> bool:
+        return self._selected_voice_provider_id().casefold() == LOCAL_VOICE_PROVIDER_ID
+
+    def _sync_voice_provider_fields(self, *_args) -> None:
+        local = self._is_local_voice_selected()
+        # Cloud-only knobs — Local Voice Engine does not need an API key.
+        for widget in (
+            self._voice_api_key_label,
+            self._voice_api_key,
+            self._voice_model_label,
+            self._voice_model,
+            self._voice_stability_label,
+            self._voice_stability,
+            self._voice_style_label,
+            self._voice_style,
+            self._voice_similarity_label,
+            self._voice_similarity,
+        ):
+            widget.setVisible(not local)
+        if local:
+            self._voice_hint.setText(
+                "Local Voice Engine is temporarily unavailable on Python 3.13 "
+                "until a compatible free backend is selected. "
+                "Optional cloud providers can be configured below."
+            )
+            if not self._voice_output_format.text().strip():
+                self._voice_output_format.setText("mp3")
+        else:
+            self._voice_hint.setText(
+                "Cloud voice providers are optional. "
+                "A valid API key is required for the selected service."
+            )
+
+    def _build_voice_provider(self, settings: VoiceSettings):
+        if self._is_local_voice_selected():
+            return LocalVoiceProvider(settings)
+        return ElevenLabsVoiceProvider(settings)
+
+    def _read_voice_settings(self) -> VoiceSettings:
+        voice_id = ""
+        voice_name = ""
+        data = self._voice_voice.currentData()
+        if isinstance(data, str) and data.strip():
+            voice_id = data.strip()
+            voice_name = self._voice_voice.currentText().strip()
+        else:
+            text = self._voice_voice.currentText().strip()
+            if text.endswith(")") and "(" in text:
+                voice_name = text.rsplit("(", 1)[0].strip()
+                voice_id = text.rsplit("(", 1)[1].rstrip(")").strip()
+            else:
+                voice_id = text
+                voice_name = text
+        return VoiceSettings.from_mapping(
+            {
+                "api_key": self._voice_api_key.text(),
+                "voice_id": voice_id,
+                "voice_name": voice_name,
+                "language": self._voice_language.text(),
+                "model": self._voice_model.currentText(),
+                "stability": self._voice_stability.text(),
+                "style": self._voice_style.text(),
+                "speed": self._voice_speed.text(),
+                "similarity": self._voice_similarity.text(),
+                "output_format": self._voice_output_format.text(),
+            }
+        )
+
+    def _test_voice(self) -> None:
+        settings = self._read_voice_settings()
+        local = self._is_local_voice_selected()
+        self._status.setText(
+            "Testing Local Voice Engine…" if local else "Testing cloud voice provider…"
+        )
+        app = self._app()
+        if app is not None:
+            app.processEvents()
+        provider = self._build_voice_provider(settings)
+        try:
+            message = provider.test_connection()
+            voices = provider.list_voices()
+            models = provider.list_models()
+        except ProviderError as exc:
+            self._status.setText(str(exc))
+            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            return
+
+        preferred_id = settings.voice_id
+        preferred_name = settings.voice_name
+        self._voice_voice.blockSignals(True)
+        self._voice_voice.clear()
+        for voice in voices:
+            label = voice.name
+            if voice.language:
+                label = f"{voice.name} ({voice.language})"
+            self._voice_voice.addItem(label, voice.voice_id)
+        if preferred_id:
+            index = self._voice_voice.findData(preferred_id)
+            if index >= 0:
+                self._voice_voice.setCurrentIndex(index)
+            else:
+                display = preferred_name or preferred_id
+                self._voice_voice.addItem(display, preferred_id)
+                self._voice_voice.setCurrentIndex(self._voice_voice.count() - 1)
+        elif self._voice_voice.count() > 0:
+            self._voice_voice.setCurrentIndex(0)
+        self._voice_voice.blockSignals(False)
+
+        preferred_model = self._voice_model.currentText().strip()
+        self._set_combo_models(self._voice_model, models, preferred=preferred_model)
+        self._status.setText(message)
+        if app is not None:
+            title = "Local Voice Ready" if local else "Voice Provider Connected"
+            app.show_notification(title, message)
+
+    def _save_voice(self) -> None:
+        app = self._app()
+        if app is None:
+            return
+        settings = self._read_voice_settings()
+        provider_id = self._selected_voice_provider_id()
+        local = provider_id.casefold() == LOCAL_VOICE_PROVIDER_ID
+        if not local and not settings.api_key:
+            QMessageBox.warning(
+                self,
+                "Atlas Studio",
+                "Enter an API key for this cloud provider, or switch to Local Voice Engine.",
+            )
+            return
+        if not settings.voice_id:
+            QMessageBox.warning(
+                self,
+                "Atlas Studio",
+                "No voice selected. Click Test Connection to load available voices.",
+            )
+            return
+        app.config.voice_provider = provider_id
+        app.config.voice = settings
+        app.config.save()
+        app.rebuild_production_engine()
+        label = settings.voice_name or settings.voice_id
+        kind = "Local Voice Engine" if local else provider_id
+        self._status.setText(f"Voice settings saved ({kind}: {label}).")
+        app.show_notification("Voice Settings Saved", f"{kind} · {label}")
+
+    def _read_movie_settings(self) -> MovieSettings:
+        return MovieSettings.from_mapping(
+            {
+                "ffmpeg_path": self._movie_ffmpeg.text(),
+                "profile": self._movie_profile.currentData(),
+                "transition": self._movie_transition.currentData(),
+                "motion": self._movie_motion.currentData(),
+                "default_duration_sec": self._movie_duration.text(),
+                "width": self._movie_width.text(),
+                "height": self._movie_height.text(),
+                "fps": self._movie_fps.text(),
+                "codec": self._movie_codec.text(),
+                "quality_preset": self._movie_preset.text(),
+                "crf": self._movie_crf.text(),
+                "keep_scene_renders": bool(self._movie_keep_scenes.currentData()),
+            }
+        )
+
+    def _test_ffmpeg(self) -> None:
+        settings = self._read_movie_settings()
+        self._status.setText("Testing FFmpeg…")
+        app = self._app()
+        if app is not None:
+            app.processEvents()
+        try:
+            message = FFmpegProcess(settings.ffmpeg_path).validate()
+        except ProviderError as exc:
+            self._status.setText(str(exc))
+            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            return
+        self._status.setText(message)
+        if app is not None:
+            app.show_notification("FFmpeg Ready", message)
+
+    def _save_movie(self) -> None:
+        app = self._app()
+        if app is None:
+            return
+        settings = self._read_movie_settings()
+        app.config.movie = settings
+        app.config.save()
+        app.rebuild_production_engine()
+        profile = settings.resolved_profile()
+        self._status.setText(
+            f"Movie settings saved ({profile.label}, {profile.width}×{profile.height})."
+        )
+        app.show_notification("Movie Settings Saved", profile.label)
+
+    def _set_voice_combo(self, voice_id: str, voice_name: str) -> None:
+        self._voice_voice.blockSignals(True)
+        self._voice_voice.clear()
+        if voice_id:
+            label = voice_name or voice_id
+            self._voice_voice.addItem(label, voice_id)
+            self._voice_voice.setCurrentIndex(0)
+        self._voice_voice.blockSignals(False)
 
     @staticmethod
     def _set_combo_models(combo: QComboBox, models: list[str], *, preferred: str = "") -> None:

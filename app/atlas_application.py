@@ -13,6 +13,7 @@ from app.pipelines.registry import PipelineRegistry
 from app.projects.project_service import ProjectService
 from app.providers.image_registry import ImageProviderRegistry
 from app.providers.registry import ProviderRegistry
+from app.providers.voice_registry import VoiceProviderRegistry
 from app.tasks.task_manager import TaskManager
 from app.ui.branding.icons import app_icon
 from app.ui.branding.identity import APP_NAME, ORGANIZATION
@@ -83,6 +84,7 @@ class AtlasApplication(QApplication):
             registry=registry,
             provider_registry=ProviderRegistry(self.config),
             image_provider_registry=ImageProviderRegistry(self.config),
+            voice_provider_registry=VoiceProviderRegistry(self.config),
         )
         self.tasks.bind_engine(self.production)
 

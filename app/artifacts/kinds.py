@@ -9,5 +9,6 @@ class ArtifactKind(str, Enum):
     SCRIPT = "script"
     PRODUCTION_SHEET = "production_sheet"
     IMAGES = "images"
+    VOICE = "voice"
     THUMBNAIL = "thumbnail"
     YOUTUBE_EXPORT = "youtube_export"

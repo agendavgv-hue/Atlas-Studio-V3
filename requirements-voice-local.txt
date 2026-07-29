@@ -1,0 +1,10 @@
+# Local Voice Engine — postponed.
+#
+# Atlas Studio targets Python 3.13 as the primary runtime.
+# The previous free local backend candidate was not Python 3.13 compatible.
+# Do not install experimental voice packages here until a 3.13-ready engine
+# is selected. The Voice Engine architecture (provider ABC, registry,
+# pipeline, TaskManager) remains in place.
+#
+# When a compatible backend is chosen, list its dependencies below and
+# re-enable app/providers/local_voice.py.

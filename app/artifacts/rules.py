@@ -9,6 +9,7 @@ from app.artifacts.kinds import ArtifactKind
 DOCUMENT_EXTENSIONS = frozenset({".txt", ".md", ".docx", ".rtf", ".doc"})
 SHEET_EXTENSIONS = frozenset({".csv", ".xlsx", ".xls", ".tsv", ".json"})
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"})
+AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma"})
 VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"})
 
 IGNORE_FILENAMES = frozenset({"thumbs.db", "desktop.ini", ".ds_store"})
@@ -48,6 +49,13 @@ ARTIFACT_RULES: dict[ArtifactKind, ArtifactRule] = {
         kind=ArtifactKind.IMAGES,
         folders=("images", "image"),
         extensions=IMAGE_EXTENSIONS,
+        any_matching_file=True,
+    ),
+    ArtifactKind.VOICE: ArtifactRule(
+        kind=ArtifactKind.VOICE,
+        folders=("mp3", "audio"),
+        extensions=AUDIO_EXTENSIONS,
+        name_hints=("voice", "narration", "audio"),
         any_matching_file=True,
     ),
     ArtifactKind.THUMBNAIL: ArtifactRule(

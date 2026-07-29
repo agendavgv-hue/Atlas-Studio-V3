@@ -14,11 +14,15 @@ from app.core.project_root import require_project_root
 from app.pipelines.base import Pipeline
 from app.pipelines.context import ChannelDefaults, PipelineContext
 from app.pipelines.image_pipeline import ImagePipeline, ProgressCallback
+from app.pipelines.movie_pipeline import MoviePipeline
+from app.pipelines.movie_pipeline import ProgressCallback as MovieProgressCallback
 from app.pipelines.production_sheet_pipeline import ProductionSheetPipeline
 from app.pipelines.registry import PipelineRegistry
 from app.pipelines.results import PipelineOutcome, PipelineResult
 from app.pipelines.script_pipeline import ScriptPipeline
 from app.pipelines.states import PipelineState
+from app.pipelines.voice_pipeline import VoicePipeline
+from app.pipelines.voice_pipeline import ProgressCallback as VoiceProgressCallback
 from app.projects.models import Project
 from app.projects.project_numbering import project_title
 from app.projects.project_paths import ProjectPaths
@@ -30,8 +34,13 @@ from app.providers.errors import ProviderConfigurationError
 from app.providers.image_base import ImageProvider
 from app.providers.image_registry import ImageProviderRegistry
 from app.providers.registry import ProviderRegistry
+from app.providers.voice_base import VoiceProvider
+from app.providers.voice_registry import VoiceProviderRegistry
+from app.render.ffmpeg import FFmpegProcess
 
 QueueProgressCallback = ProgressCallback
+VoiceQueueProgressCallback = VoiceProgressCallback
+MovieQueueProgressCallback = MovieProgressCallback
 
 
 class ProductionEngine:
@@ -44,9 +53,12 @@ class ProductionEngine:
         registry: PipelineRegistry | None = None,
         provider_registry: ProviderRegistry | None = None,
         image_provider_registry: ImageProviderRegistry | None = None,
+        voice_provider_registry: VoiceProviderRegistry | None = None,
         *,
         text_provider: TextProvider | None = None,
         image_provider: ImageProvider | None = None,
+        voice_provider: VoiceProvider | None = None,
+        ffmpeg: FFmpegProcess | None = None,
         prompts: PromptAssembler | None = None,
     ) -> None:
         self._projects = project_service
@@ -54,8 +66,11 @@ class ProductionEngine:
         self.registry = registry or PipelineRegistry()
         self._providers = provider_registry or ProviderRegistry(config)
         self._image_providers = image_provider_registry or ImageProviderRegistry(config)
+        self._voice_providers = voice_provider_registry or VoiceProviderRegistry(config)
         self._text_provider_override = text_provider  # tests only
         self._image_provider_override = image_provider  # tests only
+        self._voice_provider_override = voice_provider  # tests only
+        self._ffmpeg_override = ffmpeg  # tests only
         self._prompts = prompts or PromptAssembler()
         self._last_progress: ProjectProgress | None = None
         self._active_pipeline: Pipeline | None = None
@@ -88,6 +103,11 @@ class ProductionEngine:
         if self._image_provider_override is not None:
             return self._image_provider_override
         return self._image_providers.require_image_provider()
+
+    def resolve_voice_provider(self) -> VoiceProvider:
+        if self._voice_provider_override is not None:
+            return self._voice_provider_override
+        return self._voice_providers.require_voice_provider()
 
     def request_cancel(self) -> None:
         """Cooperative cancel of the active pipeline (after current unit of work)."""
@@ -270,6 +290,51 @@ class ProductionEngine:
             on_queue_progress=on_queue_progress,
         )
         return self.execute(pipeline, context)
+
+    def generate_voice(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: VoiceQueueProgressCallback | None = None,
+    ) -> PipelineResult:
+        """Generate one complete narration MP3 from the project script."""
+        try:
+            provider = self.resolve_voice_provider()
+        except ProviderConfigurationError as exc:
+            return PipelineResult.failed(str(exc), errors=[str(exc)])
+        pipeline = VoicePipeline(provider, on_queue_progress=on_queue_progress)
+        return self.execute(pipeline, context)
+
+    def regenerate_voice(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: VoiceQueueProgressCallback | None = None,
+    ) -> PipelineResult:
+        return self.generate_voice(context, on_queue_progress=on_queue_progress)
+
+    def generate_movie(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: MovieQueueProgressCallback | None = None,
+    ) -> PipelineResult:
+        """Render the long-form YouTube movie via the Render Service."""
+        ffmpeg = self._ffmpeg_override or FFmpegProcess(self._config.movie.ffmpeg_path)
+        pipeline = MoviePipeline(
+            self._config.movie,
+            ffmpeg=ffmpeg,
+            on_queue_progress=on_queue_progress,
+        )
+        return self.execute(pipeline, context)
+
+    def regenerate_movie(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: MovieQueueProgressCallback | None = None,
+    ) -> PipelineResult:
+        return self.generate_movie(context, on_queue_progress=on_queue_progress)
 
     def execute_registered(
         self,

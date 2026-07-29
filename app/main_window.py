@@ -61,6 +61,8 @@ class MainWindow(QMainWindow):
         if isinstance(app, AtlasApplication):
             app.tasks.status_changed.connect(self._on_global_status)
             app.tasks.image_finished.connect(self._on_image_finished)
+            app.tasks.voice_finished.connect(self._on_voice_finished)
+            app.tasks.movie_finished.connect(self._on_movie_finished)
             self._on_global_status(app.tasks.status)
 
         self._sidebar.page_requested.connect(self._show_page)
@@ -87,6 +89,32 @@ class MainWindow(QMainWindow):
             app.show_notification("Images Cancelled", result.message or "Cancelled")
         elif result.outcome == PipelineOutcome.FAILED:
             app.show_notification("Images Failed", result.message)
+
+    def _on_voice_finished(self, result) -> None:
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        if result.outcome == PipelineOutcome.SUCCESS:
+            app.show_notification("Voice Complete", result.message)
+        elif result.outcome == PipelineOutcome.WARNING:
+            app.show_notification("Voice Warning", result.message)
+        elif result.outcome == PipelineOutcome.CANCELLED:
+            app.show_notification("Voice Cancelled", result.message or "Cancelled")
+        elif result.outcome == PipelineOutcome.FAILED:
+            app.show_notification("Voice Failed", result.message)
+
+    def _on_movie_finished(self, result) -> None:
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        if result.outcome == PipelineOutcome.SUCCESS:
+            app.show_notification("Movie Complete", result.message)
+        elif result.outcome == PipelineOutcome.WARNING:
+            app.show_notification("Movie Warning", result.message)
+        elif result.outcome == PipelineOutcome.CANCELLED:
+            app.show_notification("Movie Cancelled", result.message or "Cancelled")
+        elif result.outcome == PipelineOutcome.FAILED:
+            app.show_notification("Movie Failed", result.message)
 
     def _show_page(self, key: str) -> None:
         index = self._page_index.get(key)

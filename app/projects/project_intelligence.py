@@ -23,8 +23,11 @@ def scan_project_progress(project_dir: Path) -> ProjectProgress:
         "script": resolver.exists(ArtifactKind.SCRIPT),
         "production_sheet": resolver.exists(ArtifactKind.PRODUCTION_SHEET),
         "images": resolver.exists(ArtifactKind.IMAGES),
+        "voice": resolver.exists(ArtifactKind.VOICE),
         "instagram": _has_media(root / "insta", IMAGE_EXTENSIONS),
-        "movie": _has_media(root / "mp4", VIDEO_EXTENSIONS),
+        # Movie is complete when the final export exists, or kept scene renders remain.
+        "movie": resolver.exists(ArtifactKind.YOUTUBE_EXPORT)
+        or _has_movie_working_files(root / "mp4"),
         "shorts": _has_media(root / "short", VIDEO_EXTENSIONS),
         "thumbnail": resolver.exists(ArtifactKind.THUMBNAIL),
         "youtube_export": resolver.exists(ArtifactKind.YOUTUBE_EXPORT),
@@ -53,3 +56,13 @@ def _iter_files(folder: Path) -> list[Path]:
 
 def _has_media(folder: Path, extensions: frozenset[str] | set[str]) -> bool:
     return any(path.suffix.casefold() in extensions for path in _iter_files(folder))
+
+
+def _has_movie_working_files(folder: Path) -> bool:
+    """True when kept scene renders exist (ignores temporary .atlas_render work)."""
+    if not folder.is_dir():
+        return False
+    for path in _iter_files(folder):
+        if path.suffix.casefold() in VIDEO_EXTENSIONS:
+            return True
+    return False
