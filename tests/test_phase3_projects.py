@@ -68,7 +68,8 @@ class ProjectServiceTests(unittest.TestCase):
             self.assertEqual(project.channel_name, channel)
             self.assertEqual(project.status, STATUS_DRAFT)
             self.assertEqual(project.idea, "A cold open")
-            project_dir = root / channel / "Episode 01"
+            self.assertEqual(project.folder_name, "001 - Episode 01")
+            project_dir = root / channel / "001 - Episode 01"
             self.assertTrue(project_dir.is_dir())
             config_path = project_dir / "project.json"
             self.assertTrue(config_path.is_file())
@@ -87,27 +88,27 @@ class ProjectServiceTests(unittest.TestCase):
     def test_open_sets_active_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service, channel, _ = _setup(Path(tmp))
-            service.create_project(channel, "Open Me")
-            opened = service.open_project(channel, "Open Me")
-            self.assertEqual(opened.folder_name, "Open Me")
+            created = service.create_project(channel, "Open Me")
+            opened = service.open_project(channel, created.folder_name)
+            self.assertEqual(opened.folder_name, "001 - Open Me")
             assert service.active_project is not None
-            self.assertEqual(service.active_project.folder_name, "Open Me")
+            self.assertEqual(service.active_project.folder_name, "001 - Open Me")
             self.assertEqual(service.active_project.channel_name, channel)
 
     def test_delete_removes_project_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service, channel, root = _setup(Path(tmp))
-            service.create_project(channel, "Temp")
-            service.delete_project(channel, "Temp")
-            self.assertFalse((root / channel / "Temp").exists())
+            created = service.create_project(channel, "Temp")
+            service.delete_project(channel, created.folder_name)
+            self.assertFalse((root / channel / created.folder_name).exists())
 
     def test_rename_project_architecture(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service, channel, root = _setup(Path(tmp))
-            service.create_project(channel, "Old Name", idea="idea")
-            renamed = service.rename_project(channel, "Old Name", "New Name")
+            created = service.create_project(channel, "Old Name", idea="idea")
+            renamed = service.rename_project(channel, created.folder_name, "New Name")
             self.assertEqual(renamed.folder_name, "New Name")
-            self.assertFalse((root / channel / "Old Name").exists())
+            self.assertFalse((root / channel / created.folder_name).exists())
             self.assertTrue((root / channel / "New Name" / "project.json").is_file())
 
     def test_list_isolated_per_channel(self) -> None:
@@ -117,8 +118,14 @@ class ProjectServiceTests(unittest.TestCase):
             (root / other).mkdir()
             service.create_project(channel, "Only A")
             service.create_project(other, "Only B")
-            self.assertEqual([p.name for p in service.list_projects(channel)], ["Only A"])
-            self.assertEqual([p.name for p in service.list_projects(other)], ["Only B"])
+            self.assertEqual(
+                [p.name for p in service.list_projects(channel)],
+                ["001 - Only A"],
+            )
+            self.assertEqual(
+                [p.name for p in service.list_projects(other)],
+                ["001 - Only B"],
+            )
 
     def test_create_without_channel_name_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,4 +1,4 @@
-"""Project workspace shell — workflow steps visible, not functional yet."""
+"""Project workspace — lifecycle + project intelligence progress."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
 )
 
 from app.atlas_application import AtlasApplication
-from app.projects.models import WORKFLOW_STEPS
 
 
 class ProjectWorkspacePage(QWidget):
@@ -39,14 +38,12 @@ class ProjectWorkspacePage(QWidget):
         self._subtitle = QLabel("")
         self._subtitle.setObjectName("PageSubtitle")
 
-        steps_label = QLabel("Workflow")
-        steps_label.setObjectName("PageSubtitle")
+        progress_label = QLabel("Progress")
+        progress_label.setObjectName("PageSubtitle")
 
-        self._steps = QListWidget()
-        self._steps.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        self._steps.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        for step in WORKFLOW_STEPS:
-            self._steps.addItem(QListWidgetItem(f"{step}  —  Pending"))
+        self._progress = QListWidget()
+        self._progress.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self._progress.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 32, 32, 32)
@@ -55,8 +52,8 @@ class ProjectWorkspacePage(QWidget):
         layout.addWidget(self._title)
         layout.addWidget(self._subtitle)
         layout.addSpacing(8)
-        layout.addWidget(steps_label)
-        layout.addWidget(self._steps, stretch=1)
+        layout.addWidget(progress_label)
+        layout.addWidget(self._progress, stretch=1)
 
     def load_project(self, channel_name: str, project_folder: str) -> None:
         self._channel_name = channel_name
@@ -71,9 +68,11 @@ class ProjectWorkspacePage(QWidget):
             return
         try:
             project = app.projects.get_project(self._channel_name, self._project_folder)
+            progress = app.projects.get_progress(self._channel_name, self._project_folder)
         except (OSError, FileNotFoundError, ValueError):
             self._title.setText("Project not found")
             self._subtitle.setText("")
+            self._progress.clear()
             return
 
         self._title.setText(project.name)
@@ -81,3 +80,7 @@ class ProjectWorkspacePage(QWidget):
         self._subtitle.setText(
             f"Channel: {project.channel_name}  ·  Status: {project.status}  ·  Idea: {idea}"
         )
+
+        self._progress.clear()
+        for step in progress.steps:
+            self._progress.addItem(QListWidgetItem(step.display))

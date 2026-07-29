@@ -36,7 +36,7 @@ class ProjectsPage(QWidget):
         self._list.itemDoubleClicked.connect(self._open_selected)
 
         self._name_input = QLineEdit()
-        self._name_input.setPlaceholderText("New project name")
+        self._name_input.setPlaceholderText("Project title (number assigned automatically)")
 
         self._idea_input = QLineEdit()
         self._idea_input.setPlaceholderText("Idea (optional)")

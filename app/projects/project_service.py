@@ -10,8 +10,12 @@ from app.core.app_config import AppConfig
 from app.core.project_root import ProjectRootError, require_project_root
 from app.projects.models import Project
 from app.projects.project_discovery import discover_project_folder_names
+from app.projects.project_intelligence import scan_project_progress
+from app.projects.project_numbering import allocate_project_folder_name
 from app.projects.project_paths import ProjectPaths
+from app.projects.project_status import ProjectProgress
 from app.projects.project_store import ProjectStore
+from app.projects.project_template import ensure_project_template
 
 _INVALID_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -52,6 +56,8 @@ class ProjectService:
         store = ProjectStore(paths)
         projects: list[Project] = []
         for name in discover_project_folder_names(paths.channel_dir):
+            project_dir = paths.project_dir(name)
+            ensure_project_template(project_dir)
             projects.append(store.ensure_default(name))
         return projects
 
@@ -61,6 +67,7 @@ class ProjectService:
         project_dir = paths.project_dir(folder)
         if not project_dir.is_dir():
             raise FileNotFoundError(f"Project folder not found: {folder}")
+        ensure_project_template(project_dir)
         return ProjectStore(paths).ensure_default(folder)
 
     def create_project(
@@ -69,19 +76,25 @@ class ProjectService:
         name: str,
         idea: str = "",
     ) -> Project:
-        folder_name = self._validate_name(name)
+        title = self._validate_name(name)
         paths = self._paths(channel_name)
         if not paths.channel_dir.is_dir():
             raise FileNotFoundError(
                 f"Channel library folder not found: {channel_name.strip()}"
             )
 
+        existing = discover_project_folder_names(paths.channel_dir)
+        folder_name = allocate_project_folder_name(title, existing)
         store = ProjectStore(paths)
         project_dir = paths.project_dir(folder_name)
+
         if project_dir.exists() and store.exists(folder_name):
+            ensure_project_template(project_dir)
             return store.load(folder_name)
 
         project_dir.mkdir(parents=True, exist_ok=True)
+        ensure_project_template(project_dir)
+
         if store.exists(folder_name):
             return store.load(folder_name)
 
@@ -100,6 +113,14 @@ class ProjectService:
             folder_name=project.folder_name,
         )
         return project
+
+    def get_progress(self, channel_name: str, name: str) -> ProjectProgress:
+        paths = self._paths(channel_name)
+        folder = name.strip()
+        project_dir = paths.project_dir(folder)
+        if not project_dir.is_dir():
+            raise FileNotFoundError(f"Project folder not found: {folder}")
+        return scan_project_progress(project_dir)
 
     def delete_project(self, channel_name: str, name: str) -> None:
         paths = self._paths(channel_name)
@@ -131,10 +152,10 @@ class ProjectService:
         store = ProjectStore(paths)
         project = store.ensure_default(old_folder)
         old_dir.rename(new_dir)
+        ensure_project_template(new_dir)
 
         project.name = new_folder
         project.folder_name = new_folder
-        # Store paths still use channel; config file is under renamed folder.
         ProjectStore(paths).save(project)
 
         if (
