@@ -55,6 +55,22 @@ def stylesheet() -> str:
         font-size: 13px;
     }}
 
+    /* Labels float on their parent card / page — no separate dark boxes. */
+    QLabel {{
+        background-color: transparent;
+        color: {c["text"]};
+    }}
+
+    QLabel#SectionLabel {{
+        color: {c["accent"]};
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        padding-top: 4px;
+        padding-bottom: 2px;
+        background: transparent;
+    }}
+
     QLabel#SidebarLogoImage {{
         padding: 0;
         background: transparent;
@@ -66,6 +82,7 @@ def stylesheet() -> str:
         font-weight: 700;
         letter-spacing: 2.6px;
         padding: 0;
+        background: transparent;
     }}
 
     QLabel#SidebarTagline {{
@@ -73,6 +90,7 @@ def stylesheet() -> str:
         font-size: 10px;
         letter-spacing: 2px;
         padding: 0;
+        background: transparent;
     }}
 
     QWidget#SidebarBrand {{
@@ -82,6 +100,56 @@ def stylesheet() -> str:
     QFrame#Sidebar {{
         background-color: {c["bg_panel"]};
         border-right: 1px solid {c["border"]};
+    }}
+
+    QFrame#SidebarStatusCard {{
+        background-color: {c["bg_elevated"]};
+        border: 1px solid {c["border"]};
+        border-radius: 12px;
+        margin: 4px 12px 8px 12px;
+    }}
+
+    QLabel#SidebarStatusTitle {{
+        color: {c["accent"]};
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1.8px;
+        background: transparent;
+    }}
+
+    QLabel#SidebarStatusCaption {{
+        color: {c["text_muted"]};
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.4px;
+        background: transparent;
+    }}
+
+    QLabel#SidebarStatusTask {{
+        color: {c["text"]};
+        font-size: 15px;
+        font-weight: 600;
+        background: transparent;
+    }}
+
+    QLabel#SidebarStatusValue {{
+        color: {c["text"]};
+        font-size: 13px;
+        font-weight: 500;
+        background: transparent;
+    }}
+
+    QProgressBar#SidebarStatusBar {{
+        background-color: {c["bg_deep"]};
+        border: 1px solid {c["border"]};
+        border-radius: 7px;
+        min-height: 14px;
+        max-height: 14px;
+    }}
+
+    QProgressBar#SidebarStatusBar::chunk {{
+        background-color: {c["accent"]};
+        border-radius: 6px;
     }}
 
     QPushButton[navButton="true"] {{
@@ -124,7 +192,7 @@ def stylesheet() -> str:
         background-color: {c["bg_deep"]};
     }}
 
-    QLineEdit {{
+    QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox {{
         background-color: {c["bg_panel"]};
         color: {c["text"]};
         border: 1px solid {c["border"]};
@@ -134,7 +202,8 @@ def stylesheet() -> str:
         selection-color: #0B0D10;
     }}
 
-    QLineEdit:focus {{
+    QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
+    QSpinBox:focus, QDoubleSpinBox:focus {{
         border: 1px solid {c["accent_dim"]};
     }}
 
@@ -271,18 +340,44 @@ def stylesheet() -> str:
         font-size: 20px;
         font-weight: 600;
         letter-spacing: 0.2px;
+        background: transparent;
     }}
 
-    QLabel#GlobalStatus {{
+    QLabel#VoiceHealthStatus {{
+        color: {c["text"]};
+        font-size: 13px;
+        font-weight: 600;
+        background: transparent;
+        padding-top: 4px;
+    }}
+
+    QLabel#VoiceHealthDetail {{
         color: {c["text_muted"]};
         font-size: 12px;
-        padding-left: 8px;
+        background: transparent;
+    }}
+
+    QWidget#VoiceHealthPanel {{
+        background: transparent;
     }}
 
     QFrame#ProgressCard {{
         background-color: {c["bg_panel"]};
         border: 1px solid {c["border"]};
         border-radius: 12px;
+    }}
+
+    QFrame#ProductionCard {{
+        background-color: {c["bg_panel"]};
+        border: 1px solid {c["border"]};
+        border-radius: 12px;
+    }}
+
+    QLabel#ProductionCardTitle {{
+        color: {c["text"]};
+        font-size: 14px;
+        font-weight: 600;
+        background: transparent;
     }}
 
     QWidget#ProgressRow {{
@@ -294,6 +389,7 @@ def stylesheet() -> str:
         color: {c["text"]};
         font-size: 14px;
         font-weight: 500;
+        background: transparent;
     }}
 
     QScrollArea#ProgressScroll {{
@@ -316,6 +412,37 @@ def stylesheet() -> str:
     QLabel#ToastMessage {{
         color: {c["text_muted"]};
         font-size: 12px;
+    }}
+
+    QScrollArea#VoiceLibraryScroll {{
+        background: transparent;
+        border: none;
+    }}
+
+    QFrame#VoiceLibraryRow {{
+        background-color: {c["bg_panel"]};
+        border: 1px solid {c["border"]};
+        border-radius: 10px;
+    }}
+
+    QFrame#VoiceLibraryRow[selected="true"] {{
+        background-color: {c["accent_soft"]};
+        border: 1px solid {c["accent_dim"]};
+    }}
+
+    QLabel#VoiceLibraryName {{
+        color: {c["text"]};
+        font-size: 14px;
+        font-weight: 600;
+        background: transparent;
+    }}
+
+    QLabel#VoiceLibraryWarning {{
+        color: {c["accent"]};
+        font-size: 12px;
+        font-weight: 500;
+        background: transparent;
+        padding-top: 2px;
     }}
 
     QDialog {{

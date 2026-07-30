@@ -1,4 +1,4 @@
-"""Voice pipeline — Generate one complete narration MP3 from the project script."""
+"""Voice pipeline — discover the script and drive the Voice Service."""
 
 from __future__ import annotations
 
@@ -6,14 +6,15 @@ from collections.abc import Callable
 
 from app.artifacts import ArtifactKind, ArtifactResolver
 from app.artifacts.documents import read_document_text
+from app.core.voice_settings import VoiceSettings
 from app.pipelines.base import Pipeline
 from app.pipelines.context import PipelineContext
 from app.pipelines.results import PipelineResult
-from app.pipelines.voice_naming import resolve_mp3_dir, voice_basename
-from app.providers.errors import ProviderError
-from app.providers.voice_base import VoiceProvider, VoiceSynthesisRequest
+from app.providers.voice_base import VoiceProvider
+from app.voice.naming import resolve_voice_dir
+from app.voice.service import VoiceService
 
-# current, total, message, detail
+# current, total, message, detail — preserved for TaskManager / VoiceWorker.
 ProgressCallback = Callable[[int, int, str, str], None]
 
 
@@ -23,11 +24,13 @@ class VoicePipeline(Pipeline):
     def __init__(
         self,
         provider: VoiceProvider,
+        settings: VoiceSettings | None = None,
         *,
         on_queue_progress: ProgressCallback | None = None,
     ) -> None:
         super().__init__()
         self._provider = provider
+        self._settings = settings or _settings_from_provider(provider)
         self._on_queue_progress = on_queue_progress
 
     @property
@@ -52,25 +55,20 @@ class VoicePipeline(Pipeline):
         except OSError as exc:
             errors.append(f"Cannot read script: {exc}")
             return errors
-        if not text:
-            errors.append("Script is empty — nothing to narrate.")
-            return errors
+
+        service = VoiceService(
+            self._provider,
+            self._settings,
+            cancel_check=self.is_cancel_requested,
+        )
+        errors.extend(service.validate_ready(script_text=text))
 
         try:
-            self._provider.validate_ready()
-        except ProviderError as exc:
-            errors.append(str(exc))
-            return errors
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"Voice provider validation failed: {exc}")
-            return errors
-
-        try:
-            mp3_dir = resolve_mp3_dir(context.project_dir)
-            if not mp3_dir.is_dir():
-                errors.append(f"Voice output folder is not available: {mp3_dir}")
+            voice_dir = resolve_voice_dir(context.project_dir)
+            if not voice_dir.is_dir():
+                errors.append(f"Voice output folder is not available: {voice_dir}")
             else:
-                probe = mp3_dir / ".atlas_write_probe"
+                probe = voice_dir / ".atlas_write_probe"
                 probe.write_text("ok", encoding="utf-8")
                 probe.unlink(missing_ok=True)
         except OSError as exc:
@@ -82,7 +80,7 @@ class VoicePipeline(Pipeline):
         return self.generate_all(context)
 
     def generate_all(self, context: PipelineContext) -> PipelineResult:
-        """Synthesize the full script into one ``voice.mp3``."""
+        """Discover the script and delegate narration production to VoiceService."""
         total = 1
         if self.is_cancel_requested():
             return PipelineResult.cancelled(queue_current=0, queue_total=total)
@@ -91,8 +89,6 @@ class VoicePipeline(Pipeline):
         if script is None:
             return PipelineResult.failed("No script found.")
 
-        self._set_progress(0.15, "Reading script")
-        self._emit_queue(1, total, "Reading script", script.name)
         try:
             text = read_document_text(script).strip()
         except OSError as exc:
@@ -100,64 +96,40 @@ class VoicePipeline(Pipeline):
         if not text:
             return PipelineResult.failed("Script is empty — nothing to narrate.")
 
-        if self.is_cancel_requested():
-            return PipelineResult.cancelled(queue_current=0, queue_total=total)
-
         preview = text if len(text) <= 80 else text[:77] + "…"
-        self._set_progress(0.4, "Generating voice")
-        self._emit_queue(1, total, "Generating voice", preview)
 
-        try:
-            response = self._provider.synthesize(VoiceSynthesisRequest(text=text))
-        except ProviderError as exc:
-            return PipelineResult.failed(
-                f"Voice generation failed: {exc}",
-                errors=[str(exc)],
-                queue_current=1,
-                queue_total=total,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return PipelineResult.failed(
-                f"Voice generation failed: {exc}",
-                errors=[str(exc)],
-                queue_current=1,
-                queue_total=total,
-            )
+        def on_progress(message: str, stage: str) -> None:
+            stage_progress = {
+                "started": 0.05,
+                "script_loaded": 0.15,
+                "planned": 0.3,
+                "manifest_ready": 0.4,
+                "generated": 0.65,
+                "exported": 0.85,
+                "manifest": 0.95,
+                "finished": 1.0,
+            }
+            self._set_progress(stage_progress.get(stage, 0.5), message)
+            detail = preview if stage in {"script_loaded", "generated"} else script.name
+            if stage in {"exported", "finished", "manifest"}:
+                detail = "voice.wav"
+            self._emit_queue(1, total, message, detail)
 
-        # Cooperative cancel: current synthesis finishes, file is saved, then Cancelled.
-        mp3_dir = resolve_mp3_dir(context.project_dir)
-        out_path = mp3_dir / voice_basename(response.content_type)
-        self._set_progress(0.85, "Saving voice")
-        self._emit_queue(1, total, "Saving voice", out_path.name)
-        try:
-            out_path.write_bytes(response.audio_bytes)
-        except OSError as exc:
-            return PipelineResult.failed(
-                f"Cannot write voice file: {exc}",
-                errors=[str(exc)],
-                queue_current=1,
-                queue_total=total,
-            )
-
-        artifact = f"{mp3_dir.name}/{out_path.name}"
-        if self.is_cancel_requested():
-            return PipelineResult.cancelled(
-                "Cancelled after voice was generated",
-                queue_current=1,
-                queue_total=total,
-                artifacts=[artifact],
-            )
-
-        self._set_progress(1.0, "Voice complete")
-        self._emit_queue(1, total, "Voice complete", out_path.name)
-        return PipelineResult.success(
-            "Generated voice narration",
-            artifacts=[artifact],
-            queue_current=1,
-            queue_total=total,
-            succeeded_indexes=[1],
+        service = VoiceService(
+            self._provider,
+            self._settings,
+            on_progress=on_progress,
+            cancel_check=self.is_cancel_requested,
         )
+        return service.create_voice(context, script_text=text)
 
     def _emit_queue(self, current: int, total: int, message: str, detail: str = "") -> None:
         if self._on_queue_progress is not None:
             self._on_queue_progress(current, total, message, detail)
+
+
+def _settings_from_provider(provider: VoiceProvider) -> VoiceSettings:
+    settings = getattr(provider, "settings", None)
+    if isinstance(settings, VoiceSettings):
+        return settings
+    return VoiceSettings()

@@ -69,8 +69,9 @@ class ArtifactResolver:
             return True
         return False
 
-    def _rank(self, path: Path, rule: ArtifactRule) -> tuple[int, int, str]:
-        """Lower tuple sorts earlier — prefer stronger name hint matches."""
+    def _rank(self, path: Path, rule: ArtifactRule) -> tuple[int, int, int, str]:
+        """Lower tuple sorts earlier — prefer earlier rule folders, then name hints."""
+        folder_rank = self._folder_rank(path, rule)
         stem = path.stem.casefold()
         if not rule.name_hints:
             hint_rank = 0
@@ -82,7 +83,16 @@ class ArtifactResolver:
             )
         else:
             hint_rank = 100
-        return (hint_rank, -path.stat().st_mtime_ns, path.name.casefold())
+        return (folder_rank, hint_rank, -path.stat().st_mtime_ns, path.name.casefold())
+
+    @staticmethod
+    def _folder_rank(path: Path, rule: ArtifactRule) -> int:
+        """Prefer folders listed earlier in ``rule.folders`` (e.g. voice before mp3)."""
+        parent = path.parent.name.casefold()
+        for index, folder_name in enumerate(rule.folders):
+            if parent == folder_name.casefold():
+                return index
+        return len(rule.folders) + 1
 
     @staticmethod
     def _iter_files(folder: Path) -> list[Path]:

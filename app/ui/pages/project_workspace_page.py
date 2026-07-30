@@ -1,4 +1,4 @@
-"""Project workspace — production progress and Generate Production / Images / Voice."""
+"""Project workspace — production cards, progress, Generate Production / Images / Voice / Movie / Thumbnail."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ from pathlib import Path
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -26,12 +28,17 @@ from app.pipelines.image_naming import resolve_images_dir
 from app.pipelines.image_progress import ImageQueueProgress
 from app.pipelines.results import PipelineOutcome
 from app.pipelines.voice_info import voice_file_info
-from app.pipelines.voice_naming import resolve_mp3_dir
-from app.pipelines.voice_progress import VoiceQueueProgress
+from app.voice.naming import resolve_voice_dir
 from app.render.naming import final_video_path, resolve_youtube_dir
 from app.render.progress import MovieQueueProgress
+from app.thumbnail.naming import resolve_thumbnail_dir, thumbnail_path
+from app.thumbnail.progress import ThumbnailQueueProgress
 from app.ui.widgets.progress_row import ProgressRow
 from app.ui.widgets.voice_player import VoicePlayer
+
+# Comfortable card width so primary/secondary labels stay readable.
+_CARD_MIN_WIDTH = 280
+_CARD_GAP = 12
 
 
 class ProjectWorkspacePage(QWidget):
@@ -42,6 +49,8 @@ class ProjectWorkspacePage(QWidget):
         self.setObjectName("PageFrame")
         self._channel_name: str | None = None
         self._project_folder: str | None = None
+        self._production_cards: list[QFrame] = []
+        self._card_columns = 0
 
         back_button = QPushButton("← Back to Projects")
         back_button.clicked.connect(self.back_requested.emit)
@@ -56,6 +65,7 @@ class ProjectWorkspacePage(QWidget):
         self._meta = QLabel("")
         self._meta.setObjectName("PageSubtitle")
 
+        # --- Production card ---
         self._generate = QPushButton("Generate Production")
         self._generate.setObjectName("PrimaryButton")
         self._generate.clicked.connect(self._generate_production)
@@ -76,23 +86,14 @@ class ProjectWorkspacePage(QWidget):
         regen_sheet.setObjectName("SecondaryButton")
         regen_sheet.clicked.connect(self._regenerate_sheet)
 
-        primary_row = QHBoxLayout()
-        primary_row.addWidget(self._generate)
-        primary_row.addStretch()
+        production_card = self._make_card("Script & Sheet")
+        production_body = production_card.layout()
+        assert isinstance(production_body, QVBoxLayout)
+        production_body.addWidget(self._generate)
+        production_body.addLayout(self._button_row(open_script, open_sheet))
+        production_body.addLayout(self._button_row(regen_script, regen_sheet))
 
-        secondary_row = QHBoxLayout()
-        secondary_row.addWidget(open_script)
-        secondary_row.addWidget(open_sheet)
-        secondary_row.addStretch()
-
-        regen_row = QHBoxLayout()
-        regen_row.addWidget(regen_script)
-        regen_row.addWidget(regen_sheet)
-        regen_row.addStretch()
-
-        images_label = QLabel("Images")
-        images_label.setObjectName("SectionLabel")
-
+        # --- Images card ---
         self._generate_images = QPushButton("Generate Images")
         self._generate_images.setObjectName("PrimaryButton")
         self._generate_images.clicked.connect(self._on_images_primary_clicked)
@@ -104,21 +105,19 @@ class ProjectWorkspacePage(QWidget):
         self._regen_images.setObjectName("SecondaryButton")
         self._regen_images.clicked.connect(self._run_regenerate_images)
 
-        images_primary = QHBoxLayout()
-        images_primary.addWidget(self._generate_images)
-        images_primary.addStretch()
+        images_card = self._make_card("Images")
+        images_body = images_card.layout()
+        assert isinstance(images_body, QVBoxLayout)
+        images_body.addWidget(self._generate_images)
+        images_body.addLayout(self._button_row(open_images, self._regen_images))
 
-        images_secondary = QHBoxLayout()
-        images_secondary.addWidget(open_images)
-        images_secondary.addWidget(self._regen_images)
-        images_secondary.addStretch()
-
-        voice_label = QLabel("Voice")
-        voice_label.setObjectName("SectionLabel")
-
+        # --- Voice card ---
         self._voice_info = QLabel("No voice file yet")
         self._voice_info.setObjectName("PageSubtitle")
         self._voice_info.setWordWrap(True)
+        self._voice_narrator = QLabel("")
+        self._voice_narrator.setObjectName("PageSubtitle")
+        self._voice_narrator.setWordWrap(True)
 
         self._generate_voice = QPushButton("Generate Voice")
         self._generate_voice.setObjectName("PrimaryButton")
@@ -131,21 +130,19 @@ class ProjectWorkspacePage(QWidget):
         self._regen_voice.setObjectName("SecondaryButton")
         self._regen_voice.clicked.connect(self._run_regenerate_voice)
 
-        voice_primary = QHBoxLayout()
-        voice_primary.addWidget(self._generate_voice)
-        voice_primary.addStretch()
-
-        voice_secondary = QHBoxLayout()
-        voice_secondary.addWidget(open_voice)
-        voice_secondary.addWidget(self._regen_voice)
-        voice_secondary.addStretch()
-
         self._voice_player = VoicePlayer()
         self._voice_player.duration_ready.connect(self._on_voice_duration)
 
-        movie_label = QLabel("Movie")
-        movie_label.setObjectName("SectionLabel")
+        voice_card = self._make_card("Voice")
+        voice_body = voice_card.layout()
+        assert isinstance(voice_body, QVBoxLayout)
+        voice_body.addWidget(self._voice_info)
+        voice_body.addWidget(self._voice_narrator)
+        voice_body.addWidget(self._generate_voice)
+        voice_body.addLayout(self._button_row(open_voice, self._regen_voice))
+        voice_body.addWidget(self._voice_player)
 
+        # --- Movie card ---
         self._generate_movie = QPushButton("Generate Movie")
         self._generate_movie.setObjectName("PrimaryButton")
         self._generate_movie.clicked.connect(self._on_movie_primary_clicked)
@@ -160,19 +157,63 @@ class ProjectWorkspacePage(QWidget):
         self._regen_movie.setObjectName("SecondaryButton")
         self._regen_movie.clicked.connect(self._run_regenerate_movie)
 
-        movie_primary = QHBoxLayout()
-        movie_primary.addWidget(self._generate_movie)
-        movie_primary.addStretch()
+        movie_card = self._make_card("Movie")
+        movie_body = movie_card.layout()
+        assert isinstance(movie_body, QVBoxLayout)
+        movie_body.addWidget(self._generate_movie)
+        movie_body.addLayout(
+            self._button_row(open_movie, open_video, self._regen_movie)
+        )
 
-        movie_secondary = QHBoxLayout()
-        movie_secondary.addWidget(open_movie)
-        movie_secondary.addWidget(open_video)
-        movie_secondary.addWidget(self._regen_movie)
-        movie_secondary.addStretch()
+        # --- Thumbnail card ---
+        self._generate_thumbnail = QPushButton("Generate Thumbnail")
+        self._generate_thumbnail.setObjectName("PrimaryButton")
+        self._generate_thumbnail.clicked.connect(self._on_thumbnail_primary_clicked)
+
+        open_thumbnail = QPushButton("Open Folder")
+        open_thumbnail.clicked.connect(self._open_thumbnail_folder)
+
+        open_thumb_file = QPushButton("Open Thumbnail")
+        open_thumb_file.clicked.connect(self._open_thumbnail_file)
+
+        self._regen_thumbnail = QPushButton("Regenerate Thumbnail")
+        self._regen_thumbnail.setObjectName("SecondaryButton")
+        self._regen_thumbnail.clicked.connect(self._run_regenerate_thumbnail)
+
+        thumbnail_card = self._make_card("Thumbnail")
+        thumbnail_body = thumbnail_card.layout()
+        assert isinstance(thumbnail_body, QVBoxLayout)
+        thumbnail_body.addWidget(self._generate_thumbnail)
+        thumbnail_body.addLayout(
+            self._button_row(open_thumbnail, open_thumb_file, self._regen_thumbnail)
+        )
+
+        self._production_cards = [
+            production_card,
+            images_card,
+            voice_card,
+            movie_card,
+            thumbnail_card,
+        ]
+
+        self._cards_host = QWidget()
+        self._cards_host.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        self._cards_grid = QGridLayout(self._cards_host)
+        self._cards_grid.setContentsMargins(0, 0, 0, 0)
+        self._cards_grid.setHorizontalSpacing(_CARD_GAP)
+        self._cards_grid.setVerticalSpacing(_CARD_GAP)
+        self._relayout_production_cards(force=True)
 
         self._queue = QLabel("")
         self._queue.setObjectName("PageSubtitle")
         self._queue.setWordWrap(True)
+
+        self._result = QLabel("")
+        self._result.setObjectName("PageSubtitle")
+        self._result.setWordWrap(True)
 
         progress_label = QLabel("Progress")
         progress_label.setObjectName("SectionLabel")
@@ -189,10 +230,6 @@ class ProjectWorkspacePage(QWidget):
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setWidget(self._progress_host)
 
-        self._result = QLabel("")
-        self._result.setObjectName("PageSubtitle")
-        self._result.setWordWrap(True)
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 36, 36, 36)
         layout.setSpacing(10)
@@ -200,23 +237,7 @@ class ProjectWorkspacePage(QWidget):
         layout.addWidget(self._title)
         layout.addWidget(self._meta)
         layout.addSpacing(8)
-        layout.addLayout(primary_row)
-        layout.addLayout(secondary_row)
-        layout.addLayout(regen_row)
-        layout.addSpacing(12)
-        layout.addWidget(images_label)
-        layout.addLayout(images_primary)
-        layout.addLayout(images_secondary)
-        layout.addSpacing(12)
-        layout.addWidget(voice_label)
-        layout.addWidget(self._voice_info)
-        layout.addLayout(voice_primary)
-        layout.addLayout(voice_secondary)
-        layout.addWidget(self._voice_player)
-        layout.addSpacing(12)
-        layout.addWidget(movie_label)
-        layout.addLayout(movie_primary)
-        layout.addLayout(movie_secondary)
+        layout.addWidget(self._cards_host)
         layout.addWidget(self._queue)
         layout.addWidget(self._result)
         layout.addSpacing(14)
@@ -224,6 +245,62 @@ class ProjectWorkspacePage(QWidget):
         layout.addWidget(scroll, stretch=1)
 
         self._connect_tasks()
+
+    @staticmethod
+    def _make_card(title: str) -> QFrame:
+        card = QFrame()
+        card.setObjectName("ProductionCard")
+        card.setMinimumWidth(_CARD_MIN_WIDTH)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        body = QVBoxLayout(card)
+        body.setContentsMargins(16, 14, 16, 14)
+        body.setSpacing(10)
+        label = QLabel(title)
+        label.setObjectName("ProductionCardTitle")
+        body.addWidget(label)
+        return card
+
+    @staticmethod
+    def _button_row(*buttons: QPushButton) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        for button in buttons:
+            row.addWidget(button)
+        row.addStretch()
+        return row
+
+    def _relayout_production_cards(self, *, force: bool = False) -> None:
+        width = max(self._cards_host.width(), self.width() - 72)
+        if width >= (_CARD_MIN_WIDTH * 3) + (_CARD_GAP * 2):
+            columns = 3
+        else:
+            columns = 2
+        if not force and columns == self._card_columns:
+            return
+        self._card_columns = columns
+
+        while self._cards_grid.count():
+            item = self._cards_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(self._cards_host)
+
+        for index, card in enumerate(self._production_cards):
+            row = index // columns
+            col = index % columns
+            self._cards_grid.addWidget(card, row, col)
+            card.show()
+
+        for col in range(columns):
+            self._cards_grid.setColumnStretch(col, 1)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._relayout_production_cards()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._relayout_production_cards(force=True)
 
     def _connect_tasks(self) -> None:
         app = self._app()
@@ -238,6 +315,9 @@ class ProjectWorkspacePage(QWidget):
         app.tasks.movie_progress.connect(self._on_movie_progress)
         app.tasks.movie_finished.connect(self._on_movie_finished)
         app.tasks.movie_running_changed.connect(self._sync_job_buttons)
+        app.tasks.thumbnail_progress.connect(self._on_thumbnail_progress)
+        app.tasks.thumbnail_finished.connect(self._on_thumbnail_finished)
+        app.tasks.thumbnail_running_changed.connect(self._sync_job_buttons)
 
     def load_project(self, channel_name: str, project_folder: str) -> None:
         self._voice_player.stop()
@@ -257,6 +337,7 @@ class ProjectWorkspacePage(QWidget):
             self._meta.setText("")
             self._clear_progress()
             self._voice_info.setText("No voice file yet")
+            self._voice_narrator.setText("")
             self._voice_player.set_source(None)
             return
 
@@ -272,6 +353,7 @@ class ProjectWorkspacePage(QWidget):
             self._progress_layout.addWidget(ProgressRow(step.label, step.state))
         self._progress_layout.addStretch()
         self._refresh_voice_panel()
+        self._refresh_channel_narrator()
         self._sync_job_buttons()
 
     def _app(self) -> AtlasApplication | None:
@@ -549,6 +631,70 @@ class ProjectWorkspacePage(QWidget):
         self._show_result(result)
         self._sync_job_buttons()
 
+    def _on_thumbnail_primary_clicked(self) -> None:
+        app = self._app()
+        if app is None:
+            return
+        if app.tasks.is_thumbnail_running and self._is_active_job():
+            app.tasks.stop_thumbnail()
+            self._queue.setText("Stopping thumbnail…")
+            return
+        self._start_thumbnail()
+
+    def _run_regenerate_thumbnail(self) -> None:
+        self._start_thumbnail()
+
+    def _start_thumbnail(self) -> None:
+        app = self._app()
+        if app is None or not self._channel_name or not self._project_folder:
+            return
+        if app.tasks.is_busy:
+            QMessageBox.information(
+                self,
+                "Atlas Studio",
+                "A background job is already running. Use Stop, or wait for it to finish.",
+            )
+            return
+        try:
+            context = self._context()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            return
+
+        started = app.tasks.start_thumbnail(
+            app.production,
+            context,
+            channel_name=self._channel_name,
+            project_folder=self._project_folder,
+        )
+        if not started:
+            QMessageBox.information(
+                self, "Atlas Studio", "Could not start thumbnail generation."
+            )
+            return
+        self._queue.setText("Starting thumbnail…")
+        self._result.setText("Generating thumbnail in background…")
+        self._sync_job_buttons()
+
+    def _on_thumbnail_progress(self, progress: ThumbnailQueueProgress) -> None:
+        if not self._is_active_job():
+            return
+        elapsed = int(progress.elapsed_seconds)
+        minutes, seconds = divmod(elapsed, 60)
+        parts = [progress.message, f"{minutes:02d}:{seconds:02d}"]
+        if progress.stage:
+            parts.append(progress.stage)
+        self._queue.setText("  ·  ".join(parts))
+
+    def _on_thumbnail_finished(self, result) -> None:
+        if self._channel_name and self._project_folder:
+            self.refresh()
+        if not self.isVisible():
+            self._sync_job_buttons()
+            return
+        self._show_result(result)
+        self._sync_job_buttons()
+
     def _is_active_job(self) -> bool:
         app = self._app()
         if app is None or not self._channel_name or not self._project_folder:
@@ -562,6 +708,7 @@ class ProjectWorkspacePage(QWidget):
         images_mine = bool(app and app.tasks.is_images_running and mine)
         voice_mine = bool(app and app.tasks.is_voice_running and mine)
         movie_mine = bool(app and app.tasks.is_movie_running and mine)
+        thumbnail_mine = bool(app and app.tasks.is_thumbnail_running and mine)
 
         if images_mine:
             self._generate_images.setText("Stop")
@@ -590,6 +737,17 @@ class ProjectWorkspacePage(QWidget):
             self._generate_movie.setEnabled(not busy)
             self._regen_movie.setEnabled(not busy)
 
+        if thumbnail_mine:
+            self._generate_thumbnail.setText("Stop")
+            self._generate_thumbnail.setEnabled(True)
+            self._regen_thumbnail.setEnabled(False)
+        else:
+            self._generate_thumbnail.setText("Generate Thumbnail")
+            self._generate_thumbnail.setEnabled(not busy)
+            self._regen_thumbnail.setEnabled(not busy)
+
+        self._generate.setEnabled(not busy)
+
     def _refresh_voice_panel(self) -> None:
         path = self._resolve_voice_path()
         if path is None:
@@ -602,8 +760,33 @@ class ProjectWorkspacePage(QWidget):
             self._voice_player.set_source(None)
             return
         self._voice_info.setText(f"✔ Voice  ·  {info.summary}")
-        # Reload player when path changes or media missing.
         self._voice_player.set_source(path)
+
+    def _refresh_channel_narrator(self) -> None:
+        """Show the channel's preferred narrator when a project is opened."""
+        from app.channels.voice_preferences import ChannelVoicePreferences
+
+        app = self._app()
+        if app is None or not self._channel_name:
+            self._voice_narrator.setText("")
+            return
+        try:
+            channel = app.channels.get_channel(self._channel_name)
+            prefs = ChannelVoicePreferences.from_mapping(channel.voice)
+        except Exception:  # noqa: BLE001
+            self._voice_narrator.setText("")
+            return
+        if not prefs.voice_id and not prefs.voice_name:
+            self._voice_narrator.setText("Narrator: using app default voice settings")
+            return
+        parts = [prefs.voice_name or prefs.voice_id]
+        if prefs.gender:
+            parts.append(prefs.gender)
+        if prefs.language:
+            parts.append(prefs.language)
+        if prefs.style_tags:
+            parts.append(prefs.style_tags[0])
+        self._voice_narrator.setText("Narrator: " + " · ".join(parts))
 
     def _on_voice_duration(self, duration_ms: int) -> None:
         path = self._resolve_voice_path()
@@ -635,7 +818,7 @@ class ProjectWorkspacePage(QWidget):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "Atlas Studio", str(exc))
             return
-        folder = resolve_mp3_dir(context.project_dir)
+        folder = resolve_voice_dir(context.project_dir)
         self._open_path(folder)
 
     def _open_movie_folder(self) -> None:
@@ -665,6 +848,32 @@ class ProjectWorkspacePage(QWidget):
                 return
         self._open_path(path)
 
+    def _open_thumbnail_folder(self) -> None:
+        try:
+            context = self._context()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            return
+        self._open_path(resolve_thumbnail_dir(context.project_dir))
+
+    def _open_thumbnail_file(self) -> None:
+        try:
+            context = self._context()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            return
+        path = ArtifactResolver(context.project_dir).find(ArtifactKind.THUMBNAIL)
+        if path is None:
+            path = thumbnail_path(context.project_dir)
+            if not path.is_file():
+                QMessageBox.information(
+                    self,
+                    "Atlas Studio",
+                    "No thumbnail yet. Generate Thumbnail first.",
+                )
+                return
+        self._open_path(path)
+
     def _show_result(self, result) -> None:
         app = self._app()
         detail = result.message
@@ -675,10 +884,14 @@ class ProjectWorkspacePage(QWidget):
         )
         if app is None:
             return
-        # Image/voice completions notify from MainWindow; keep dialogs for text pipelines.
+        # Background job completions notify from MainWindow.
         lowered = result.message.casefold()
         background = (
-            "image" in lowered or "voice" in lowered or "exported" in lowered or "scene" in lowered
+            "image" in lowered
+            or "voice" in lowered
+            or "exported" in lowered
+            or "scene" in lowered
+            or "thumbnail" in lowered
         )
         if result.outcome == PipelineOutcome.SUCCESS:
             if not background:

@@ -7,6 +7,7 @@ from app.pipelines.artifacts import PRODUCTION_SHEET_FILENAME, SCRIPT_FOLDER
 from app.pipelines.base import Pipeline
 from app.pipelines.context import PipelineContext
 from app.pipelines.results import PipelineResult
+from app.pipelines.sheet_prompts import extract_image_prompts
 from app.prompts.assembler import PromptAssembler
 from app.providers.base import TextProvider
 from app.providers.errors import ProviderError
@@ -61,12 +62,31 @@ class ProductionSheetPipeline(Pipeline):
         if self.is_cancel_requested():
             return PipelineResult.cancelled()
 
+        sheet_body = text.strip()
+        if not sheet_body:
+            return PipelineResult.failed(
+                "Production sheet generation returned empty text.",
+                errors=["Empty production sheet"],
+            )
+
+        prompts = extract_image_prompts(sheet_body)
+        if not prompts:
+            return PipelineResult.failed(
+                "Production sheet has no image prompts. "
+                "Expected IMAGE 01 / Prompt: blocks (or legacy Image Prompt: lines).",
+                errors=["No image prompts found in generated production sheet."],
+            )
+
         existing = resolver.find(ArtifactKind.PRODUCTION_SHEET)
-        path = existing if existing is not None else context.folder(SCRIPT_FOLDER) / PRODUCTION_SHEET_FILENAME
-        path.write_text(text.strip() + "\n", encoding="utf-8")
+        path = (
+            existing
+            if existing is not None
+            else context.folder(SCRIPT_FOLDER) / PRODUCTION_SHEET_FILENAME
+        )
+        path.write_text(sheet_body + "\n", encoding="utf-8")
         self._set_progress(1.0, "Production sheet saved")
         rel = f"{path.parent.name}/{path.name}"
         return PipelineResult.success(
-            "Production sheet generated",
+            f"Production sheet generated ({len(prompts)} image prompt(s))",
             artifacts=[rel],
         )

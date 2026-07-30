@@ -37,7 +37,25 @@ class ChannelStore:
 
     def ensure_default(self, folder_name: str) -> Channel:
         if self.exists(folder_name):
-            return self.load(folder_name)
-        channel = Channel.create_default(folder_name)
+            channel = self.load(folder_name)
+        else:
+            channel = Channel.create_default(folder_name)
+            self.save(channel)
+        return self._ensure_voice_preferences(channel)
+
+    def _ensure_voice_preferences(self, channel: Channel) -> Channel:
+        """Apply suggested channel narrator defaults when none are stored yet."""
+        from app.channels.voice_preferences import (
+            ChannelVoicePreferences,
+            resolve_channel_voice_preferences,
+        )
+
+        current = ChannelVoicePreferences.from_mapping(channel.voice)
+        if not current.is_empty():
+            return channel
+        resolved = resolve_channel_voice_preferences(channel.name, channel.voice)
+        if resolved.is_empty():
+            return channel
+        channel.voice = resolved.to_dict()
         self.save(channel)
         return channel

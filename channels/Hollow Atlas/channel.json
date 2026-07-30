@@ -8,7 +8,21 @@
   "image_prompt": "",
   "negative_prompt": "",
   "thumbnail_prompt": "",
-  "voice": {},
+  "voice": {
+    "provider": "kokoro",
+    "voice_id": "am_michael",
+    "voice_name": "Michael",
+    "speed": 1.0,
+    "language": "en-US",
+    "gender": "Male",
+    "style_tags": [
+      "Deep",
+      "Calm",
+      "Documentary",
+      "Authoritative",
+      "Cinematic"
+    ]
+  },
   "movie": {},
   "seo": {}
 }

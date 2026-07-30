@@ -15,9 +15,10 @@ from app.pipelines.engine import ProductionEngine
 from app.pipelines.results import PipelineOutcome
 from app.projects.project_service import ProjectService
 from app.render.duration import extract_sheet_durations, resolve_scene_durations
-from app.render.ffmpeg import FFmpegProcess
+from app.render.ffmpeg import FFmpegProcess, MediaProbe
 from app.render.motion import resolve_motion
-from app.render.naming import final_video_path, scene_basename
+from app.render.naming import final_video_path, render_manifest_path, scene_basename
+from app.render.manifest import RenderManifest
 from app.render.service import RenderService
 from app.render.timeline import Timeline
 
@@ -39,9 +40,28 @@ class FakeFFmpeg(FFmpegProcess):
         return "Fake FFmpeg OK"
 
     def probe_duration(self, path: Path) -> float | None:
-        if path.suffix.casefold() in {".mp3", ".wav", ".m4a"}:
-            return self.voice_duration
-        return 1.0
+        info = self.probe_media(path)
+        return None if info is None else info.duration_sec
+
+    def probe_media(self, path: Path) -> MediaProbe | None:
+        if not path.is_file():
+            return None
+        suffix = path.suffix.casefold()
+        if suffix in {".mp3", ".wav", ".m4a"}:
+            return MediaProbe(
+                duration_sec=self.voice_duration,
+                has_audio=True,
+                has_video=False,
+            )
+        # Synthetic final/scene video — enough for QC without real containers.
+        return MediaProbe(
+            duration_sec=None,
+            width=1920,
+            height=1080,
+            fps=30.0,
+            has_video=True,
+            has_audio=True,
+        )
 
     def run(self, args: list[str], *, timeout: float | None = 3600) -> subprocess.CompletedProcess[str]:
         from app.providers.errors import ProviderError
@@ -163,6 +183,18 @@ class MoviePipelineTests(unittest.TestCase):
             self.assertTrue(final.is_file())
             self.assertFalse((context.folder("mp4") / scene_basename(1)).is_file())
             self.assertTrue(any(item[2].startswith("Rendering Scene") for item in seen))
+
+            manifest_path = render_manifest_path(context.project_dir)
+            self.assertTrue(manifest_path.is_file())
+            self.assertTrue(
+                any(a.endswith("render_manifest.json") for a in result.artifacts)
+            )
+            loaded = RenderManifest.read_json(manifest_path)
+            self.assertEqual(len(loaded.main_scenes), 3)
+            self.assertIsNotNone(loaded.quality)
+            assert loaded.quality is not None
+            self.assertTrue(loaded.quality.passed)
+            self.assertEqual(loaded.output.video_filename, "video.mp4")
 
             progress = engine._projects.get_progress(
                 context.channel_name,

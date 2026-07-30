@@ -1,7 +1,7 @@
-"""Render Service — builds timelines and renders video via FFmpeg.
+"""Render Service — central movie render orchestrator.
 
-Used by MoviePipeline (and future Shorts / Instagram pipelines).
-Owned conceptually by the Production Engine stack — not a parallel architecture.
+Coordinates timeline building, FFmpegRenderer execution, QC, manifest write,
+cancel, and results. Does not embed FFmpeg argv construction (see ``FFmpegRenderer``).
 """
 
 from __future__ import annotations
@@ -10,19 +10,23 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from app.core.movie_settings import MovieSettings
+from app.core.movie_settings import MovieSettings, RenderProfileSpec
 from app.pipelines.results import PipelineResult
 from app.providers.errors import ProviderError
 from app.render.duration import natural_image_sort_key, resolve_scene_durations
 from app.render.ffmpeg import FFmpegProcess
-from app.render.motion import resolve_motion, scene_video_filter
+from app.render.motion import resolve_motion
 from app.render.naming import (
     final_video_path,
+    render_manifest_path,
     resolve_mp4_dir,
     resolve_work_dir,
     resolve_youtube_dir,
     scene_basename,
 )
+from app.render.manifest import ManifestQuality, RenderManifest
+from app.render.quality import QualityController, QualityReport
+from app.render.renderer import FFmpegRenderer
 from app.render.timeline import Timeline, TimelineScene, TimelineSegment
 
 ProgressCallback = Callable[[int, int, str, str, str], None]
@@ -39,15 +43,33 @@ class RenderService:
         *,
         on_progress: ProgressCallback | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        renderer: FFmpegRenderer | None = None,
+        quality: QualityController | None = None,
     ) -> None:
         self._settings = settings
         self._ffmpeg = ffmpeg or FFmpegProcess(settings.ffmpeg_path)
+        self._renderer = renderer or FFmpegRenderer(self._ffmpeg)
+        self._quality = quality or QualityController(self._ffmpeg)
         self._on_progress = on_progress
         self._cancel_check = cancel_check
+        self._last_quality: QualityReport | None = None
+        self._last_manifest: RenderManifest | None = None
 
     @property
     def ffmpeg(self) -> FFmpegProcess:
         return self._ffmpeg
+
+    @property
+    def renderer(self) -> FFmpegRenderer:
+        return self._renderer
+
+    @property
+    def last_quality_report(self) -> QualityReport | None:
+        return self._last_quality
+
+    @property
+    def last_manifest(self) -> RenderManifest | None:
+        return self._last_manifest
 
     def validate_ready(self) -> list[str]:
         errors: list[str] = []
@@ -140,7 +162,7 @@ class RenderService:
             self._emit(position, total, message, "scene", scene.image_path.name)
             out = work_root / scene_basename(scene.index)
             try:
-                self._render_scene(scene, out, profile)
+                self._renderer.render_scene(scene, out, profile)
             except ProviderError as exc:
                 if self._should_cancel() or "cancelled" in str(exc).casefold():
                     return PipelineResult.cancelled(
@@ -168,7 +190,12 @@ class RenderService:
         final_path = final_video_path(project_dir)
         self._emit(total, total, "Exporting final video", "export", final_path.name)
         try:
-            self._export_final(scene_files, timeline.voice_path, final_path, profile)
+            self._renderer.export_final(
+                scene_files,
+                timeline.voice_path,
+                final_path,
+                profile,
+            )
         except ProviderError as exc:
             if self._should_cancel() or "cancelled" in str(exc).casefold():
                 return PipelineResult.cancelled(
@@ -181,14 +208,59 @@ class RenderService:
                 errors=[str(exc)],
                 queue_current=total,
                 queue_total=total,
-                artifacts=artifacts,
             )
 
         artifacts.append(f"{youtube_dir.name}/{final_path.name}")
+
+        self._emit(total, total, "Quality check", "qc", final_path.name)
+        report = self._quality.validate(
+            final_path,
+            expected_width=profile.width,
+            expected_height=profile.height,
+            expected_fps=profile.fps,
+            expected_duration_sec=timeline.total_duration_sec,
+            require_audio=timeline.voice_path is not None,
+        )
+        self._last_quality = report
+
+        # Manifest describes the produced render + QC result (sidecar only).
+        self._emit(total, total, "Writing render manifest", "manifest", "")
+        manifest = self._build_manifest(timeline, profile, report)
+        manifest_path = render_manifest_path(project_dir)
+        try:
+            manifest.write_json(manifest_path)
+            self._last_manifest = manifest
+            artifacts.append(f"{youtube_dir.name}/{manifest_path.name}")
+        except OSError as exc:
+            if not report.passed:
+                return PipelineResult.failed(
+                    "Quality check failed",
+                    errors=list(report.errors) or ["Quality check failed"],
+                    queue_current=total,
+                    queue_total=total,
+                )
+            return PipelineResult.failed(
+                f"Failed to write render manifest: {exc}",
+                errors=[str(exc)],
+                queue_current=total,
+                queue_total=total,
+            )
+
+        if not report.passed:
+            # Video + manifest left on disk — QC never deletes or repairs.
+            return PipelineResult.failed(
+                "Quality check failed",
+                errors=list(report.errors) or ["Quality check failed"],
+                queue_current=total,
+                queue_total=total,
+            )
+
         if not self._settings.keep_scene_renders:
             self._cleanup_work(work_root)
 
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+        # Soft QC warnings do not change the SUCCESS outcome (backward compatible).
+        # Callers can inspect ``last_quality_report`` for warnings/errors detail.
         return PipelineResult.success(
             f"Exported {final_path.name} ({timeline.duration_source}, "
             f"{total} scene(s), {timeline.total_duration_sec:.1f}s)",
@@ -199,96 +271,36 @@ class RenderService:
             execution_time_ms=elapsed_ms,
         )
 
-    def _render_scene(self, scene: TimelineScene, out_path: Path, profile) -> None:
-        vf = scene_video_filter(
+    def _build_manifest(
+        self,
+        timeline: Timeline,
+        profile: RenderProfileSpec,
+        report: QualityReport,
+    ) -> RenderManifest:
+        voice_duration = None
+        if timeline.voice_path is not None and timeline.voice_path.is_file():
+            voice_duration = self._ffmpeg.probe_duration(timeline.voice_path)
+        manifest = RenderManifest.from_timeline(
+            timeline,
+            profile_id=profile.profile_id,
             width=profile.width,
             height=profile.height,
             fps=profile.fps,
-            duration_sec=scene.duration_sec,
-            motion=scene.motion,
+            codec=profile.codec,
+            preset=profile.preset,
+            crf=profile.crf,
+            keep_scene_renders=self._settings.keep_scene_renders,
+            voice_duration_sec=voice_duration,
+            music_enabled=self._settings.music_enabled,
+            music_volume=self._settings.music_volume,
         )
-        args = [
-            "-y",
-            "-loop",
-            "1",
-            "-i",
-            str(scene.image_path),
-            "-t",
-            f"{scene.duration_sec:.3f}",
-            "-vf",
-            vf,
-            "-c:v",
-            profile.codec,
-            "-preset",
-            profile.preset,
-            "-crf",
-            str(profile.crf),
-            "-pix_fmt",
-            "yuv420p",
-            "-an",
-            str(out_path),
-        ]
-        self._ffmpeg.run(args)
-
-    def _export_final(
-        self,
-        scene_files: list[Path],
-        voice_path: Path | None,
-        final_path: Path,
-        profile,
-    ) -> None:
-        if not scene_files:
-            raise ProviderError("No scene files to export.")
-
-        list_file = final_path.parent / ".atlas_concat.txt"
-        lines = [f"file '{_ffmpeg_path(path)}'" for path in scene_files]
-        list_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-        # Concat demuxer. Fade/crossfade share concat in Sprint 8;
-        # xfade filter_complex can refine transitions later without API changes.
-        try:
-            if voice_path is not None and voice_path.is_file():
-                args = [
-                    "-y",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(list_file),
-                    "-i",
-                    str(voice_path),
-                    "-c:v",
-                    profile.codec,
-                    "-preset",
-                    profile.preset,
-                    "-crf",
-                    str(profile.crf),
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "192k",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-shortest",
-                    str(final_path),
-                ]
-            else:
-                args = [
-                    "-y",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(list_file),
-                    "-c",
-                    "copy",
-                    str(final_path),
-                ]
-            self._ffmpeg.run(args)
-        finally:
-            list_file.unlink(missing_ok=True)
+        manifest.quality = ManifestQuality(
+            passed=report.passed,
+            warnings=list(report.warnings),
+            errors=list(report.errors),
+            checks=dict(report.checks),
+        )
+        return manifest
 
     def _cleanup_work(self, work_root: Path) -> None:
         if work_root.name != ".atlas_render":
@@ -316,8 +328,3 @@ class RenderService:
     ) -> None:
         if self._on_progress is not None:
             self._on_progress(current, total, message, stage, scene_label)
-
-
-def _ffmpeg_path(path: Path) -> str:
-    # Concat demuxer on Windows needs forward slashes / escaped quotes.
-    return str(path.resolve()).replace("\\", "/").replace("'", r"'\''")

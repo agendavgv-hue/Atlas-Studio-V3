@@ -32,19 +32,30 @@ from app.providers.elevenlabs import ElevenLabsVoiceProvider
 from app.providers.errors import ProviderError
 from app.providers.forge import ForgeImageProvider
 from app.providers.gemini import discover_text_models
-from app.providers.local_voice import (
-    LOCAL_VOICE_PROVIDER_ID,
-    LOCAL_VOICE_PROVIDER_LABEL,
-    LocalVoiceProvider,
+from app.providers.kokoro import (
+    KOKORO_PROVIDER_ID,
+    KOKORO_PROVIDER_LABEL,
+    KokoroProvider,
 )
+from app.providers.local_voice import LOCAL_VOICE_PROVIDER_ID
 from app.render.ffmpeg import FFmpegProcess
 from app.ui.dialogs.about_dialog import AboutDialog
+from app.ui.voice_health_display import (
+    VoiceHealthDisplay,
+    display_from_kokoro_health,
+    probe_kokoro_quick,
+)
+from app.ui.widgets.voice_library import VoiceLibraryWidget
+from app.providers.voice_base import VoiceInfo
 
 
 class SettingsPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("PageFrame")
+        self._pending_voice_id = ""
+        self._pending_voice_name = ""
+        self._voice_persist_enabled = True
 
         title = QLabel("Settings")
         title.setObjectName("PageTitle")
@@ -151,18 +162,39 @@ class SettingsPage(QWidget):
         voice_label.setObjectName("SectionLabel")
 
         self._voice_provider = QComboBox()
-        self._voice_provider.addItem(LOCAL_VOICE_PROVIDER_LABEL, LOCAL_VOICE_PROVIDER_ID)
+        self._voice_provider.addItem(KOKORO_PROVIDER_LABEL, KOKORO_PROVIDER_ID)
         self._voice_provider.addItem("ElevenLabs (Optional)", "elevenlabs")
         # Future optional cloud plugins: OpenAI, Azure, Google, …
         self._voice_provider.currentIndexChanged.connect(self._sync_voice_provider_fields)
+
+        # Inline provider health — never uses popup dialogs.
+        health_panel = QWidget()
+        health_panel.setObjectName("VoiceHealthPanel")
+        health_layout = QVBoxLayout(health_panel)
+        health_layout.setContentsMargins(0, 6, 0, 4)
+        health_layout.setSpacing(4)
+        self._voice_health_status = QLabel("⚪ Checking…")
+        self._voice_health_status.setObjectName("VoiceHealthStatus")
+        self._voice_health_detail = QLabel("")
+        self._voice_health_detail.setObjectName("VoiceHealthDetail")
+        self._voice_health_detail.setWordWrap(True)
+        health_layout.addWidget(self._voice_health_status)
+        health_layout.addWidget(self._voice_health_detail)
+
+        # Reserved for future Repair / Download Models / Test Provider actions.
+        self._voice_health_actions = QHBoxLayout()
+        self._voice_health_actions.setContentsMargins(0, 2, 0, 2)
+        self._voice_health_actions.setSpacing(8)
+        self._voice_health_actions.addStretch()
 
         self._voice_api_key = QLineEdit()
         self._voice_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self._voice_api_key.setPlaceholderText("Required for cloud providers only")
 
-        self._voice_voice = QComboBox()
-        self._voice_voice.setEditable(True)
-        self._voice_voice.setPlaceholderText("Click Test Connection to load voices")
+        library_label = QLabel("Voice Library")
+        library_label.setObjectName("SectionLabel")
+        self._voice_library = VoiceLibraryWidget()
+        self._voice_library.voice_selected.connect(self._on_voice_library_selected)
 
         self._voice_language = QLineEdit()
         self._voice_language.setPlaceholderText("e.g. en-US")
@@ -173,10 +205,11 @@ class SettingsPage(QWidget):
         self._voice_speed = QLineEdit()
         self._voice_similarity = QLineEdit()
         self._voice_output_format = QLineEdit()
-        self._voice_output_format.setPlaceholderText("mp3 or wav")
+        self._voice_output_format.setPlaceholderText("wav (Kokoro) or mp3 (cloud)")
 
         self._voice_hint = QLabel(
-            "Local Voice Engine works offline and requires no subscription. "
+            "Kokoro works offline and requires no subscription. "
+            "Install local deps with requirements-voice-local.txt. "
             "Cloud providers are optional."
         )
         self._voice_hint.setObjectName("PageSubtitle")
@@ -185,26 +218,28 @@ class SettingsPage(QWidget):
         voice_form = QFormLayout()
         self._voice_api_key_label = QLabel("API Key")
         voice_form.addRow(self._voice_api_key_label, self._voice_api_key)
-        voice_form.addRow("Voice", self._voice_voice)
-        voice_form.addRow("Language", self._voice_language)
         self._voice_model_label = QLabel("Model")
         voice_form.addRow(self._voice_model_label, self._voice_model)
         self._voice_stability_label = QLabel("Stability")
         voice_form.addRow(self._voice_stability_label, self._voice_stability)
         self._voice_style_label = QLabel("Style")
         voice_form.addRow(self._voice_style_label, self._voice_style)
+        voice_form.addRow("Language", self._voice_language)
         voice_form.addRow("Speed", self._voice_speed)
         self._voice_similarity_label = QLabel("Similarity")
         voice_form.addRow(self._voice_similarity_label, self._voice_similarity)
         voice_form.addRow("Output Format", self._voice_output_format)
 
-        test_voice = QPushButton("Test Connection")
+        test_voice = QPushButton("Test Provider")
         test_voice.clicked.connect(self._test_voice)
+        refresh_voices = QPushButton("Refresh Voices")
+        refresh_voices.clicked.connect(self._refresh_voice_library)
         save_voice = QPushButton("Save Voice Settings")
         save_voice.setObjectName("PrimaryButton")
         save_voice.clicked.connect(self._save_voice)
         voice_actions = QHBoxLayout()
         voice_actions.addWidget(test_voice)
+        voice_actions.addWidget(refresh_voices)
         voice_actions.addWidget(save_voice)
         voice_actions.addStretch()
 
@@ -263,6 +298,7 @@ class SettingsPage(QWidget):
         self._status = QLabel("")
         self._status.setObjectName("PageSubtitle")
         self._status.setWordWrap(True)
+        self._voice_library.status_message.connect(self._status.setText)
 
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -290,7 +326,11 @@ class SettingsPage(QWidget):
         layout.addSpacing(20)
         layout.addWidget(voice_label)
         layout.addWidget(self._voice_provider)
+        layout.addWidget(health_panel)
+        layout.addLayout(self._voice_health_actions)
         layout.addWidget(self._voice_hint)
+        layout.addWidget(library_label)
+        layout.addWidget(self._voice_library)
         layout.addLayout(voice_form)
         layout.addLayout(voice_actions)
         layout.addSpacing(20)
@@ -360,16 +400,17 @@ class SettingsPage(QWidget):
         self._forge_seed.setText(str(forge.seed))
         self._forge_negative.setText(forge.negative_prompt)
 
-        voice_provider = app.config.voice_provider or LOCAL_VOICE_PROVIDER_ID
-        if voice_provider.casefold() == "kokoro":
-            voice_provider = LOCAL_VOICE_PROVIDER_ID
+        voice_provider = app.config.voice_provider or KOKORO_PROVIDER_ID
+        if voice_provider.casefold() in {LOCAL_VOICE_PROVIDER_ID, "kokoro"}:
+            voice_provider = KOKORO_PROVIDER_ID
         voice_index = self._voice_provider.findData(voice_provider)
         if voice_index >= 0:
             self._voice_provider.setCurrentIndex(voice_index)
 
         voice = app.config.voice
         self._voice_api_key.setText(voice.api_key)
-        self._set_voice_combo(voice.voice_id, voice.voice_name)
+        self._pending_voice_id = voice.voice_id
+        self._pending_voice_name = voice.voice_name
         self._voice_language.setText(voice.language or "en-US")
         self._set_combo_models(
             self._voice_model,
@@ -382,6 +423,7 @@ class SettingsPage(QWidget):
         self._voice_similarity.setText(str(voice.similarity))
         self._voice_output_format.setText(voice.output_format or "mp3")
         self._sync_voice_provider_fields()
+        self._refresh_voice_library()
 
         movie = app.config.movie
         self._movie_ffmpeg.setText(movie.ffmpeg_path)
@@ -541,14 +583,15 @@ class SettingsPage(QWidget):
         app.show_notification("Image Settings Saved", settings.model or "Forge")
 
     def _selected_voice_provider_id(self) -> str:
-        return str(self._voice_provider.currentData() or LOCAL_VOICE_PROVIDER_ID)
+        return str(self._voice_provider.currentData() or KOKORO_PROVIDER_ID)
 
-    def _is_local_voice_selected(self) -> bool:
-        return self._selected_voice_provider_id().casefold() == LOCAL_VOICE_PROVIDER_ID
+    def _is_kokoro_selected(self) -> bool:
+        selected = self._selected_voice_provider_id().casefold()
+        return selected in {KOKORO_PROVIDER_ID, LOCAL_VOICE_PROVIDER_ID}
 
     def _sync_voice_provider_fields(self, *_args) -> None:
-        local = self._is_local_voice_selected()
-        # Cloud-only knobs — Local Voice Engine does not need an API key.
+        kokoro = self._is_kokoro_selected()
+        # Cloud-only knobs — Kokoro does not need an API key.
         for widget in (
             self._voice_api_key_label,
             self._voice_api_key,
@@ -561,41 +604,180 @@ class SettingsPage(QWidget):
             self._voice_similarity_label,
             self._voice_similarity,
         ):
-            widget.setVisible(not local)
-        if local:
+            widget.setVisible(not kokoro)
+        if kokoro:
             self._voice_hint.setText(
-                "Local Voice Engine is temporarily unavailable on Python 3.13 "
-                "until a compatible free backend is selected. "
+                "Kokoro (ONNX) is the default local voice provider (offline, free). "
+                "Install with: pip install -r requirements-voice-local.txt "
+                "(Python 3.10–3.13). Model files download into Cache/kokoro on first use. "
                 "Optional cloud providers can be configured below."
             )
             if not self._voice_output_format.text().strip():
-                self._voice_output_format.setText("mp3")
+                self._voice_output_format.setText("wav")
         else:
             self._voice_hint.setText(
                 "Cloud voice providers are optional. "
                 "A valid API key is required for the selected service."
             )
+        self._refresh_voice_health(full=False)
+        self._refresh_voice_library()
+
+    def _kokoro_model_dir(self):
+        from app.core.storage_paths import StoragePaths
+
+        app = self._app()
+        if app is None:
+            return None
+        return StoragePaths(app.config.data_root).cache / "kokoro"
+
+    def _apply_voice_health(self, display: VoiceHealthDisplay) -> None:
+        self._voice_health_status.setText(display.headline)
+        self._voice_health_detail.setText(display.detail)
+        self._voice_health_detail.setVisible(bool(display.detail.strip()))
+
+    def _refresh_voice_health(self, *, full: bool) -> None:
+        if self._is_kokoro_selected():
+            model_dir = self._kokoro_model_dir()
+            if model_dir is None:
+                self._apply_voice_health(
+                    VoiceHealthDisplay(
+                        "idle",
+                        "Unavailable",
+                        "Open Settings after the app finishes starting.",
+                    )
+                )
+                return
+            if full:
+                self._apply_voice_health(
+                    VoiceHealthDisplay(
+                        "busy",
+                        "Checking Kokoro…",
+                        "Verifying package, runtime, models, and synthesis.",
+                    )
+                )
+                app = self._app()
+                if app is not None:
+                    app.processEvents()
+                # Show download state if models are missing before health_check runs.
+                model_ok = (model_dir / "kokoro-v1.0.onnx").is_file()
+                voices_ok = (model_dir / "voices-v1.0.bin").is_file()
+                if not model_ok or not voices_ok:
+                    self._apply_voice_health(
+                        VoiceHealthDisplay(
+                            "busy",
+                            "Downloading models…",
+                            "Fetching Kokoro ONNX model files into Cache/kokoro.",
+                        )
+                    )
+                    if app is not None:
+                        app.processEvents()
+                provider = self._build_voice_provider(self._read_voice_settings())
+                health = provider.health_check()
+                self._apply_voice_health(display_from_kokoro_health(health))
+                return
+            self._apply_voice_health(probe_kokoro_quick(model_dir=model_dir))
+            return
+
+        # Cloud provider — lightweight readiness without dialogs.
+        settings = self._read_voice_settings()
+        if not settings.api_key.strip():
+            self._apply_voice_health(
+                VoiceHealthDisplay(
+                    "warn",
+                    "API key required",
+                    "Enter an API key for this cloud provider, or switch to Kokoro.",
+                )
+            )
+            return
+        self._apply_voice_health(
+            VoiceHealthDisplay(
+                "idle",
+                "Cloud provider selected",
+                "Click Test Provider to verify the connection and load voices.",
+            )
+        )
 
     def _build_voice_provider(self, settings: VoiceSettings):
-        if self._is_local_voice_selected():
-            return LocalVoiceProvider(settings)
+        if self._is_kokoro_selected():
+            return KokoroProvider(settings, model_dir=self._kokoro_model_dir())
         return ElevenLabsVoiceProvider(settings)
 
-    def _read_voice_settings(self) -> VoiceSettings:
-        voice_id = ""
-        voice_name = ""
-        data = self._voice_voice.currentData()
-        if isinstance(data, str) and data.strip():
-            voice_id = data.strip()
-            voice_name = self._voice_voice.currentText().strip()
+    def _on_voice_library_selected(self, voice: object) -> None:
+        if not isinstance(voice, VoiceInfo):
+            return
+        self._pending_voice_id = voice.voice_id
+        self._pending_voice_name = voice.name
+        if voice.language:
+            self._voice_language.setText(voice.language)
+        self._persist_last_selected_voice(voice)
+
+    def _persist_last_selected_voice(self, voice: VoiceInfo) -> None:
+        """Remember the last selected narrator across app restarts."""
+        if not self._voice_persist_enabled:
+            return
+        app = self._app()
+        if app is None:
+            return
+        current = app.config.voice
+        provider_id = self._selected_voice_provider_id()
+        if (
+            current.voice_id == voice.voice_id
+            and current.voice_name == voice.name
+            and (app.config.voice_provider or "") == provider_id
+        ):
+            return
+        settings = self._read_voice_settings()
+        app.config.voice_provider = provider_id
+        app.config.voice = settings
+        app.config.save()
+        app.rebuild_production_engine()
+
+    def _refresh_voice_library(self) -> None:
+        settings = self._read_voice_settings()
+        provider = self._build_voice_provider(settings)
+        self._voice_library.set_provider(provider)
+        try:
+            voices = provider.list_voices()
+        except ProviderError as exc:
+            self._voice_library.clear()
+            self._status.setText(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._voice_library.clear()
+            self._status.setText(f"Could not load voices: {exc}")
+            return
+        preferred = getattr(self, "_pending_voice_id", "") or settings.voice_id
+        # Prefer persisted app voice; rematch if the id disappeared.
+        self._voice_persist_enabled = False
+        try:
+            self._voice_library.set_voices(
+                voices,
+                selected_voice_id=preferred,
+                language=settings.language,
+            )
+        finally:
+            self._voice_persist_enabled = True
+        selected = self._voice_library.selected_voice()
+        if selected is not None:
+            self._pending_voice_id = selected.voice_id
+            self._pending_voice_name = selected.name
+            # Persist rematch so the next launch keeps the closest voice.
+            self._persist_last_selected_voice(selected)
+        if not voices:
+            self._status.setText("No voices available.")
+        elif self._voice_library.last_warning:
+            pass  # warning already shown inline + status_message
         else:
-            text = self._voice_voice.currentText().strip()
-            if text.endswith(")") and "(" in text:
-                voice_name = text.rsplit("(", 1)[0].strip()
-                voice_id = text.rsplit("(", 1)[1].rstrip(")").strip()
-            else:
-                voice_id = text
-                voice_name = text
+            self._status.setText(f"Loaded {len(voices)} voice(s).")
+
+    def _read_voice_settings(self) -> VoiceSettings:
+        selected = self._voice_library.selected_voice()
+        if selected is not None:
+            voice_id = selected.voice_id
+            voice_name = selected.name
+        else:
+            voice_id = getattr(self, "_pending_voice_id", "") or ""
+            voice_name = getattr(self, "_pending_voice_name", "") or voice_id
         return VoiceSettings.from_mapping(
             {
                 "api_key": self._voice_api_key.text(),
@@ -613,50 +795,50 @@ class SettingsPage(QWidget):
 
     def _test_voice(self) -> None:
         settings = self._read_voice_settings()
-        local = self._is_local_voice_selected()
+        kokoro = self._is_kokoro_selected()
         self._status.setText(
-            "Testing Local Voice Engine…" if local else "Testing cloud voice provider…"
+            "Testing Kokoro…" if kokoro else "Testing cloud voice provider…"
         )
         app = self._app()
         if app is not None:
             app.processEvents()
         provider = self._build_voice_provider(settings)
         try:
-            message = provider.test_connection()
+            if kokoro and hasattr(provider, "health_check"):
+                health = provider.health_check()
+                display = display_from_kokoro_health(health)
+                self._apply_voice_health(display)
+                if not health.ok:
+                    self._status.setText(display.detail or display.title)
+                    return
+                message = health.message
+            else:
+                message = provider.test_connection()
+                self._apply_voice_health(
+                    VoiceHealthDisplay("ok", "Provider Ready", message)
+                )
             voices = provider.list_voices()
             models = provider.list_models()
         except ProviderError as exc:
-            self._status.setText(str(exc))
-            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            detail = str(exc)
+            self._apply_voice_health(
+                VoiceHealthDisplay("error", "Provider error", detail)
+            )
+            self._status.setText(detail)
             return
 
-        preferred_id = settings.voice_id
-        preferred_name = settings.voice_name
-        self._voice_voice.blockSignals(True)
-        self._voice_voice.clear()
-        for voice in voices:
-            label = voice.name
-            if voice.language:
-                label = f"{voice.name} ({voice.language})"
-            self._voice_voice.addItem(label, voice.voice_id)
-        if preferred_id:
-            index = self._voice_voice.findData(preferred_id)
-            if index >= 0:
-                self._voice_voice.setCurrentIndex(index)
-            else:
-                display = preferred_name or preferred_id
-                self._voice_voice.addItem(display, preferred_id)
-                self._voice_voice.setCurrentIndex(self._voice_voice.count() - 1)
-        elif self._voice_voice.count() > 0:
-            self._voice_voice.setCurrentIndex(0)
-        self._voice_voice.blockSignals(False)
-
-        preferred_model = self._voice_model.currentText().strip()
-        self._set_combo_models(self._voice_model, models, preferred=preferred_model)
-        self._status.setText(message)
-        if app is not None:
-            title = "Local Voice Ready" if local else "Voice Provider Connected"
-            app.show_notification(title, message)
+        self._voice_library.set_provider(provider)
+        self._voice_library.set_voices(
+            voices,
+            selected_voice_id=settings.voice_id,
+            language=settings.language,
+        )
+        if not voices:
+            self._status.setText("No voices available.")
+        else:
+            preferred_model = self._voice_model.currentText().strip()
+            self._set_combo_models(self._voice_model, models, preferred=preferred_model)
+            self._status.setText(message)
 
     def _save_voice(self) -> None:
         app = self._app()
@@ -664,27 +846,29 @@ class SettingsPage(QWidget):
             return
         settings = self._read_voice_settings()
         provider_id = self._selected_voice_provider_id()
-        local = provider_id.casefold() == LOCAL_VOICE_PROVIDER_ID
-        if not local and not settings.api_key:
-            QMessageBox.warning(
-                self,
-                "Atlas Studio",
-                "Enter an API key for this cloud provider, or switch to Local Voice Engine.",
+        kokoro = provider_id.casefold() in {KOKORO_PROVIDER_ID, LOCAL_VOICE_PROVIDER_ID}
+        if kokoro:
+            provider_id = KOKORO_PROVIDER_ID
+        if not kokoro and not settings.api_key:
+            message = "Enter an API key for this cloud provider, or switch to Kokoro."
+            self._apply_voice_health(
+                VoiceHealthDisplay("warn", "API key required", message)
             )
+            self._status.setText(message)
             return
         if not settings.voice_id:
-            QMessageBox.warning(
-                self,
-                "Atlas Studio",
-                "No voice selected. Click Test Connection to load available voices.",
+            message = "No voice selected. Refresh the Voice Library, then choose a narrator."
+            self._apply_voice_health(
+                VoiceHealthDisplay("warn", "No voice selected", message)
             )
+            self._status.setText(message)
             return
         app.config.voice_provider = provider_id
         app.config.voice = settings
         app.config.save()
         app.rebuild_production_engine()
         label = settings.voice_name or settings.voice_id
-        kind = "Local Voice Engine" if local else provider_id
+        kind = "Kokoro" if kokoro else provider_id
         self._status.setText(f"Voice settings saved ({kind}: {label}).")
         app.show_notification("Voice Settings Saved", f"{kind} · {label}")
 
@@ -735,15 +919,6 @@ class SettingsPage(QWidget):
             f"Movie settings saved ({profile.label}, {profile.width}×{profile.height})."
         )
         app.show_notification("Movie Settings Saved", profile.label)
-
-    def _set_voice_combo(self, voice_id: str, voice_name: str) -> None:
-        self._voice_voice.blockSignals(True)
-        self._voice_voice.clear()
-        if voice_id:
-            label = voice_name or voice_id
-            self._voice_voice.addItem(label, voice_id)
-            self._voice_voice.setCurrentIndex(0)
-        self._voice_voice.blockSignals(False)
 
     @staticmethod
     def _set_combo_models(combo: QComboBox, models: list[str], *, preferred: str = "") -> None:

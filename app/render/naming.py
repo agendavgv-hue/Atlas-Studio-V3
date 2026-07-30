@@ -7,6 +7,7 @@ from pathlib import Path
 MP4_FOLDER = "mp4"
 YOUTUBE_FOLDER = "youtube_video"
 FINAL_BASENAME = "video.mp4"
+MANIFEST_BASENAME = "render_manifest.json"
 WORK_FOLDER = ".atlas_render"
 
 
@@ -18,6 +19,10 @@ def scene_basename(index: int) -> str:
 
 def final_basename() -> str:
     return FINAL_BASENAME
+
+
+def manifest_basename() -> str:
+    return MANIFEST_BASENAME
 
 
 def resolve_mp4_dir(project_dir: Path) -> Path:
@@ -41,3 +46,8 @@ def resolve_work_dir(project_dir: Path) -> Path:
 
 def final_video_path(project_dir: Path) -> Path:
     return resolve_youtube_dir(project_dir) / FINAL_BASENAME
+
+
+def render_manifest_path(project_dir: Path) -> Path:
+    """Sidecar plan written beside the final video."""
+    return resolve_youtube_dir(project_dir) / MANIFEST_BASENAME

@@ -108,12 +108,26 @@ class ElevenLabsVoiceProvider(VoiceProvider):
             labels = entry.get("labels") if isinstance(entry.get("labels"), dict) else {}
             language = str(labels.get("language") or labels.get("accent") or "").strip()
             description = str(entry.get("description") or "").strip()
+            gender = str(labels.get("gender") or "").strip().title()
+            accent = str(labels.get("accent") or "").strip()
+            age = str(labels.get("age") or "").strip()
+            style_raw = str(labels.get("descriptive") or labels.get("use_case") or "").strip()
+            style_tags = tuple(
+                part.strip().title()
+                for part in style_raw.replace("/", ",").split(",")
+                if part.strip()
+            )
             voices.append(
                 VoiceInfo(
                     voice_id=voice_id,
                     name=name,
                     language=language,
                     description=description,
+                    gender=gender,
+                    accent=accent,
+                    age=age,
+                    style_tags=style_tags,
+                    sample_text="Welcome to Mirror Drift, where tomorrow begins today.",
                 )
             )
         voices.sort(key=lambda item: item.name.casefold())

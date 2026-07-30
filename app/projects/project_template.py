@@ -10,6 +10,7 @@ PROJECT_TEMPLATE_FOLDERS: tuple[str, ...] = (
     "ffmpeg",
     "input",
     "mp3",
+    "voice",
     "script",
     "images",
     "insta",

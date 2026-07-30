@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal, Slot
@@ -33,6 +34,7 @@ class VoicePlayer(QWidget):
         super().__init__(parent)
         self.setObjectName("VoicePlayer")
         self._path: Path | None = None
+        self._temp_path: Path | None = None
         self._duration_ms = 0
         self._updating_slider = False
         self._available = False
@@ -85,7 +87,37 @@ class VoicePlayer(QWidget):
 
     def set_source(self, path: Path | None) -> None:
         """Load an audio file, or clear when path is None / missing."""
-        self._path = path if path is not None and path.is_file() else None
+        self._clear_temp()
+        self._bind_source(path if path is not None and path.is_file() else None)
+
+    def play_bytes(self, data: bytes, *, suffix: str = ".wav") -> None:
+        """Play in-memory audio via a temp file (never touches project files)."""
+        if not data:
+            return
+        self._clear_temp()
+        handle = tempfile.NamedTemporaryFile(
+            prefix="atlas_voice_preview_",
+            suffix=suffix,
+            delete=False,
+        )
+        try:
+            handle.write(data)
+            handle.flush()
+            temp_path = Path(handle.name)
+        finally:
+            handle.close()
+        self._temp_path = temp_path
+        self._bind_source(temp_path)
+        if self._player is not None and self._path is not None:
+            self._player.play()
+
+    def stop(self) -> None:
+        if self._player is not None:
+            self._player.stop()
+        self._play.setText("Play")
+
+    def _bind_source(self, path: Path | None) -> None:
+        self._path = path
         self._duration_ms = 0
         self._slider.setValue(0)
         self._slider.setRange(0, 0)
@@ -110,10 +142,13 @@ class VoicePlayer(QWidget):
         self._play.setText("Play")
         self._set_available(True)
 
-    def stop(self) -> None:
-        if self._player is not None:
-            self._player.stop()
-        self._play.setText("Play")
+    def _clear_temp(self) -> None:
+        if self._temp_path is not None and self._temp_path.is_file():
+            try:
+                self._temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        self._temp_path = None
 
     def _set_available(self, available: bool) -> None:
         if self._available == available:
@@ -179,3 +214,8 @@ class VoicePlayer(QWidget):
         current = format_duration_ms(position_ms)
         total = format_duration_ms(self._duration_ms)
         self._time.setText(f"{current} / {total}")
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self.stop()
+        self._clear_temp()
+        super().closeEvent(event)

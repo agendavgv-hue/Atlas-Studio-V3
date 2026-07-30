@@ -1,5 +1,7 @@
 """Default prompt layers (replaceable; not embedded inside pipelines)."""
 
+from app.pipelines.sheet_format import CANONICAL_SHEET_LAYOUT
+
 GLOBAL_SYSTEM = (
     "You are Atlas Studio, a professional YouTube production assistant. "
     "Write clear, structured content suitable for narration and production."
@@ -12,12 +14,9 @@ SCRIPT_PIPELINE_INSTRUCTION = (
 )
 
 PRODUCTION_SHEET_PIPELINE_INSTRUCTION = (
-    "Convert the narration script into a production sheet. "
-    "List scenes in order. For each scene include: Scene number, "
-    "Narration excerpt, Visual description, and Suggested duration. "
-    "Use a plain-text layout that is easy to read. "
-    "For each scene also include an image prompt line in the form "
-    "'Image Prompt: …' suitable for Stable Diffusion."
+    "Convert the narration script into a production sheet for image and video "
+    "production. "
+    + CANONICAL_SHEET_LAYOUT
 )
 
 GLOBAL_IMAGE_STYLE = (

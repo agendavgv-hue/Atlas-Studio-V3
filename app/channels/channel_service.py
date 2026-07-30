@@ -83,11 +83,18 @@ class ChannelService:
 
         channel = Channel.create_default(folder_name)
         store.save(channel)
-        return channel
+        return store.ensure_default(folder_name)
 
     def select_channel(self, name: str) -> Channel:
         channel = self.get_channel(name)
         self._active_folder_name = channel.folder_name
+        return channel
+
+    def save_channel(self, channel: Channel) -> Channel:
+        """Persist channel configuration (including narrator preferences)."""
+        paths = self._paths()
+        store = ChannelStore(paths)
+        store.save(channel)
         return channel
 
     def _validate_name(self, name: str) -> str:

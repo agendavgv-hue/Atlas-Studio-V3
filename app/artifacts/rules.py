@@ -53,7 +53,8 @@ ARTIFACT_RULES: dict[ArtifactKind, ArtifactRule] = {
     ),
     ArtifactKind.VOICE: ArtifactRule(
         kind=ArtifactKind.VOICE,
-        folders=("mp3", "audio"),
+        # Prefer modern voice/; keep mp3/ and audio/ as legacy read fallbacks.
+        folders=("voice", "mp3", "audio"),
         extensions=AUDIO_EXTENSIONS,
         name_hints=("voice", "narration", "audio"),
         any_matching_file=True,

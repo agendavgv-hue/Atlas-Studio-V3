@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QStackedWidget, QStatusBar, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QStatusBar, QWidget
 
 from app.atlas_application import AtlasApplication
+from app.pipelines.image_progress import ImageQueueProgress
 from app.pipelines.results import PipelineOutcome
+from app.pipelines.voice_progress import VoiceQueueProgress
+from app.render.progress import MovieQueueProgress
+from app.thumbnail.progress import ThumbnailQueueProgress
 from app.ui.branding.identity import WINDOW_TITLE
 from app.ui.motion.fades import fade_widget
 from app.ui.notifications.notification_host import NotificationHost
@@ -52,17 +56,22 @@ class MainWindow(QMainWindow):
         if isinstance(app, AtlasApplication):
             app.set_notification_host(self._notifications)
 
-        status = QStatusBar()
-        self._global_status = QLabel("Ready")
-        self._global_status.setObjectName("GlobalStatus")
-        status.addWidget(self._global_status, stretch=1)
-        self.setStatusBar(status)
+        # Bottom status bar removed — live status lives in the sidebar Status card.
+        unused_bar = QStatusBar()
+        unused_bar.setVisible(False)
+        unused_bar.setMaximumHeight(0)
+        self.setStatusBar(unused_bar)
 
         if isinstance(app, AtlasApplication):
             app.tasks.status_changed.connect(self._on_global_status)
+            app.tasks.image_progress.connect(self._on_image_progress)
+            app.tasks.voice_progress.connect(self._on_voice_progress)
+            app.tasks.movie_progress.connect(self._on_movie_progress)
+            app.tasks.thumbnail_progress.connect(self._on_thumbnail_progress)
             app.tasks.image_finished.connect(self._on_image_finished)
             app.tasks.voice_finished.connect(self._on_voice_finished)
             app.tasks.movie_finished.connect(self._on_movie_finished)
+            app.tasks.thumbnail_finished.connect(self._on_thumbnail_finished)
             self._on_global_status(app.tasks.status)
 
         self._sidebar.page_requested.connect(self._show_page)
@@ -72,10 +81,48 @@ class MainWindow(QMainWindow):
         self._show_page("dashboard")
 
     def _on_global_status(self, text: str) -> None:
-        self._global_status.setText(text)
-        bar = self.statusBar()
-        if bar is not None:
-            bar.showMessage("")
+        self._sidebar.status_card.set_from_status_text(text)
+
+    def _on_image_progress(self, progress: ImageQueueProgress) -> None:
+        item = progress.message.strip() or progress.short_prompt
+        self._sidebar.status_card.set_progress(
+            task="Generating Images",
+            current=progress.current,
+            total=progress.total,
+            item=item,
+            elapsed_seconds=progress.elapsed_seconds,
+        )
+
+    def _on_voice_progress(self, progress: VoiceQueueProgress) -> None:
+        item = progress.message.strip() or progress.short_detail
+        indeterminate = progress.total <= 0
+        self._sidebar.status_card.set_progress(
+            task="Generating Voice",
+            current=None if indeterminate else progress.current,
+            total=None if indeterminate else progress.total,
+            item=item,
+            elapsed_seconds=progress.elapsed_seconds,
+            indeterminate=indeterminate,
+        )
+
+    def _on_movie_progress(self, progress: MovieQueueProgress) -> None:
+        item = progress.short_label or progress.message
+        self._sidebar.status_card.set_progress(
+            task="Generating Movie",
+            current=progress.current,
+            total=progress.total,
+            item=item,
+            elapsed_seconds=progress.elapsed_seconds,
+            eta_seconds=progress.eta_seconds,
+        )
+
+    def _on_thumbnail_progress(self, progress: ThumbnailQueueProgress) -> None:
+        self._sidebar.status_card.set_progress(
+            task="Generating Thumbnail",
+            item=progress.message or progress.stage,
+            elapsed_seconds=progress.elapsed_seconds,
+            indeterminate=True,
+        )
 
     def _on_image_finished(self, result) -> None:
         app = AtlasApplication.instance()
@@ -116,6 +163,19 @@ class MainWindow(QMainWindow):
         elif result.outcome == PipelineOutcome.FAILED:
             app.show_notification("Movie Failed", result.message)
 
+    def _on_thumbnail_finished(self, result) -> None:
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        if result.outcome == PipelineOutcome.SUCCESS:
+            app.show_notification("Thumbnail Complete", result.message)
+        elif result.outcome == PipelineOutcome.WARNING:
+            app.show_notification("Thumbnail Warning", result.message)
+        elif result.outcome == PipelineOutcome.CANCELLED:
+            app.show_notification("Thumbnail Cancelled", result.message or "Cancelled")
+        elif result.outcome == PipelineOutcome.FAILED:
+            app.show_notification("Thumbnail Failed", result.message)
+
     def _show_page(self, key: str) -> None:
         index = self._page_index.get(key)
         if index is not None:
@@ -141,4 +201,6 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._notifications.setGeometry(0, 0, self.centralWidget().width(), self.centralWidget().height())
+        self._notifications.setGeometry(
+            0, 0, self.centralWidget().width(), self.centralWidget().height()
+        )

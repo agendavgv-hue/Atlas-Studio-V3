@@ -20,6 +20,7 @@ from app.pipelines.voice_naming import resolve_mp3_dir, voice_basename
 from app.pipelines.voice_pipeline import VoicePipeline
 from app.projects.project_service import ProjectService
 from app.providers.errors import ProviderError
+from app.providers.kokoro import KOKORO_PROVIDER_ID, KOKORO_PROVIDER_LABEL, KokoroProvider
 from app.providers.local_voice import LOCAL_VOICE_PROVIDER_LABEL, LocalVoiceProvider
 from app.providers.voice_base import (
     VoiceInfo,
@@ -27,6 +28,8 @@ from app.providers.voice_base import (
     VoiceSynthesisRequest,
     VoiceSynthesisResponse,
 )
+from app.voice.manifest import VoiceManifest
+from app.voice.naming import voice_manifest_path, voice_path
 
 
 class FakeVoiceProvider(VoiceProvider):
@@ -129,19 +132,19 @@ def _write_docx(path: Path, text: str) -> None:
 
 
 class LocalVoiceEngineTests(unittest.TestCase):
-    def test_public_label_does_not_expose_backend_name(self) -> None:
+    def test_legacy_local_label_kept_for_compat(self) -> None:
         self.assertIn("Local Voice Engine", LOCAL_VOICE_PROVIDER_LABEL)
-        self.assertNotIn("Kokoro", LOCAL_VOICE_PROVIDER_LABEL)
-        self.assertNotIn("kokoro", LOCAL_VOICE_PROVIDER_LABEL.casefold())
 
-    def test_missing_backend_message_is_product_facing(self) -> None:
+    def test_kokoro_is_the_recommended_local_provider(self) -> None:
+        self.assertIn("Kokoro", KOKORO_PROVIDER_LABEL)
+        self.assertEqual(KOKORO_PROVIDER_ID, "kokoro")
+
+    def test_legacy_local_stub_message(self) -> None:
         provider = LocalVoiceProvider(AppConfig(data_root=Path(".")).voice)
         with self.assertRaises(ProviderError) as raised:
             provider.test_connection()
         message = str(raised.exception)
-        self.assertIn("Local Voice Engine", message)
-        self.assertIn("Python 3.13", message)
-        self.assertNotIn("Kokoro", message)
+        self.assertIn("Kokoro", message)
 
     def test_voice_basename_from_content_type(self) -> None:
         self.assertEqual(voice_basename("audio/mpeg"), "voice.mp3")
@@ -179,7 +182,7 @@ class VoiceInfoTests(unittest.TestCase):
 
 
 class VoicePipelineTests(unittest.TestCase):
-    def test_generate_writes_voice_mp3_and_refreshes_intelligence(self) -> None:
+    def test_generate_writes_voice_wav_and_refreshes_intelligence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeVoiceProvider(audio=b"ID3VOICE")
             engine, context = _engine(Path(tmp), fake)
@@ -194,9 +197,14 @@ class VoicePipelineTests(unittest.TestCase):
             self.assertEqual(result.queue_total, 1)
             self.assertTrue(seen)
             self.assertTrue(any(item[2] == "Generating voice" for item in seen))
-            out = context.folder("mp3") / voice_basename()
+            out = voice_path(context.project_dir)
             self.assertTrue(out.is_file())
             self.assertEqual(out.read_bytes(), b"ID3VOICE")
+            self.assertEqual(out.name, "voice.wav")
+            self.assertEqual(out.parent.name, "voice")
+            self.assertTrue(voice_manifest_path(context.project_dir).is_file())
+            loaded = VoiceManifest.read_json(voice_manifest_path(context.project_dir))
+            self.assertTrue(loaded.exported)
             self.assertEqual(len(fake.calls), 1)
             self.assertIn("Atlantis", fake.calls[0].text)
 
@@ -244,14 +252,14 @@ class VoicePipelineTests(unittest.TestCase):
             self.assertEqual(result.outcome, PipelineOutcome.FAILED)
             self.assertTrue(any("script" in err.casefold() for err in result.errors))
 
-    def test_missing_local_backend_fails_cleanly(self) -> None:
+    def test_missing_kokoro_runtime_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp) / "atlas"
             project_root = Path(tmp) / "youtube"
             channel = "Hollow Atlas"
             (project_root / channel).mkdir(parents=True)
             config = AppConfig(data_root=data_root, project_root=project_root)
-            # Default free-first path: Local Voice Engine (currently postponed).
+            # Default free-first path: Kokoro.
             config.voice_provider = None
             Storage(config).ensure_structure()
             projects = ProjectService(config)
@@ -259,21 +267,29 @@ class VoicePipelineTests(unittest.TestCase):
             engine = ProductionEngine(projects, config)
             context = engine.build_context(project)
             (context.folder("script") / "script.txt").write_text("Hi", encoding="utf-8")
-            result = engine.generate_voice(context)
+            from unittest.mock import patch
+
+            with patch.object(
+                KokoroProvider,
+                "validate_ready",
+                side_effect=ProviderError(
+                    "Kokoro is not installed. Install local voice dependencies."
+                ),
+            ):
+                result = engine.generate_voice(context)
             self.assertEqual(result.outcome, PipelineOutcome.FAILED)
             joined = " ".join(result.errors).casefold()
-            self.assertIn("local voice", joined)
-            self.assertIn("python 3.13", joined)
+            self.assertIn("kokoro", joined)
             self.assertNotIn("elevenlabs", joined)
 
-    def test_registry_defaults_to_local(self) -> None:
-        from app.providers.local_voice import LOCAL_VOICE_PROVIDER_ID
+    def test_registry_defaults_to_kokoro(self) -> None:
         from app.providers.voice_registry import VoiceProviderRegistry
 
         config = AppConfig(data_root=Path("."))
         config.voice_provider = None
         provider = VoiceProviderRegistry(config).require_voice_provider()
-        self.assertEqual(provider.provider_id, LOCAL_VOICE_PROVIDER_ID)
+        self.assertEqual(provider.provider_id, KOKORO_PROVIDER_ID)
+        self.assertIsInstance(provider, KokoroProvider)
 
     def test_provider_failure_returns_failed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -281,17 +297,17 @@ class VoicePipelineTests(unittest.TestCase):
             engine, context = _engine(Path(tmp), fake)
             result = engine.generate_voice(context)
             self.assertEqual(result.outcome, PipelineOutcome.FAILED)
-            self.assertFalse((context.folder("mp3") / voice_basename()).is_file())
+            self.assertFalse(voice_path(context.project_dir).is_file())
 
     def test_cancel_during_synthesis_keeps_file_and_returns_cancelled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeVoiceProvider()
             engine, context = _engine(Path(tmp), fake)
-            pipeline = VoicePipeline(fake)
+            pipeline = VoicePipeline(fake, engine._config.voice)
             fake.block_until_cancel = pipeline
             result = engine.execute(pipeline, context)
             self.assertEqual(result.outcome, PipelineOutcome.CANCELLED)
-            self.assertTrue((context.folder("mp3") / voice_basename()).is_file())
+            self.assertTrue(voice_path(context.project_dir).is_file())
 
     def test_validate_ready_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -315,7 +331,7 @@ class VoicePipelineTests(unittest.TestCase):
             result = engine2.regenerate_voice(context)
             self.assertEqual(result.outcome, PipelineOutcome.SUCCESS)
             self.assertEqual(
-                (context.folder("mp3") / voice_basename()).read_bytes(),
+                voice_path(context.project_dir).read_bytes(),
                 b"SECOND",
             )
 

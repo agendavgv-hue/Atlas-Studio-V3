@@ -5,9 +5,22 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.providers.errors import ProviderError
+
+
+@dataclass(frozen=True)
+class MediaProbe:
+    """Lightweight media summary from ffprobe (or test doubles)."""
+
+    duration_sec: float | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    has_video: bool = False
+    has_audio: bool = False
 
 
 class FFmpegProcess:
@@ -63,7 +76,22 @@ class FFmpegProcess:
 
     def probe_duration(self, path: Path) -> float | None:
         """Return media duration in seconds, or None if unknown."""
-        probe = self._probe or self._sibling_probe(self.resolve())
+        info = self.probe_media(path)
+        if info is None:
+            return None
+        return info.duration_sec
+
+    def probe_media(self, path: Path) -> MediaProbe | None:
+        """Return stream/format summary, or None if probing is unavailable."""
+        if not path.is_file():
+            return None
+        probe = self._probe
+        if probe is None:
+            try:
+                probe = self._sibling_probe(self.resolve())
+                self._probe = probe
+            except ProviderError:
+                return None
         if probe is None or not probe.is_file():
             return None
         args = [
@@ -73,6 +101,7 @@ class FFmpegProcess:
             "-print_format",
             "json",
             "-show_format",
+            "-show_streams",
             str(path),
         ]
         try:
@@ -81,12 +110,9 @@ class FFmpegProcess:
             return None
         try:
             payload = json.loads(result.stdout or "{}")
-            duration = float((payload.get("format") or {}).get("duration"))
-            if duration > 0:
-                return duration
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except json.JSONDecodeError:
             return None
-        return None
+        return _media_probe_from_payload(payload)
 
     def run(self, args: list[str], *, timeout: float | None = 3600) -> subprocess.CompletedProcess[str]:
         binary = self.resolve()
@@ -144,3 +170,63 @@ class FFmpegProcess:
             return sibling
         which = shutil.which("ffprobe")
         return Path(which) if which else None
+
+
+def _media_probe_from_payload(payload: dict) -> MediaProbe:
+    duration_sec: float | None = None
+    fmt = payload.get("format") if isinstance(payload.get("format"), dict) else {}
+    try:
+        duration_sec = float(fmt.get("duration"))
+        if duration_sec <= 0:
+            duration_sec = None
+    except (TypeError, ValueError):
+        duration_sec = None
+
+    width = height = None
+    fps: float | None = None
+    has_video = False
+    has_audio = False
+    streams = payload.get("streams") if isinstance(payload.get("streams"), list) else []
+    for stream in streams:
+        if not isinstance(stream, dict):
+            continue
+        codec_type = str(stream.get("codec_type") or "").casefold()
+        if codec_type == "video":
+            has_video = True
+            try:
+                width = int(stream.get("width"))
+                height = int(stream.get("height"))
+            except (TypeError, ValueError):
+                pass
+            fps = _parse_fps(stream.get("avg_frame_rate") or stream.get("r_frame_rate"))
+        elif codec_type == "audio":
+            has_audio = True
+    return MediaProbe(
+        duration_sec=duration_sec,
+        width=width,
+        height=height,
+        fps=fps,
+        has_video=has_video,
+        has_audio=has_audio,
+    )
+
+
+def _parse_fps(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text or text == "0/0":
+        return None
+    if "/" in text:
+        num_s, den_s = text.split("/", 1)
+        try:
+            num = float(num_s)
+            den = float(den_s)
+        except ValueError:
+            return None
+        if den == 0:
+            return None
+        return num / den
+    try:
+        parsed = float(text)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None

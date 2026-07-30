@@ -1,4 +1,4 @@
-"""Voice provider protocol — Local Voice Engine and optional cloud backends share this."""
+"""Voice provider protocol — Kokoro and optional cloud backends share this."""
 
 from __future__ import annotations
 
@@ -8,12 +8,22 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class VoiceInfo:
-    """Selectable voice from a provider catalogue."""
+    """Selectable voice from a provider catalogue.
+
+    Future providers (Kokoro, ElevenLabs, OpenAI, Google, Azure, Piper, …)
+    should fill as many of these fields as the backend exposes. The Voice
+    Library UI is built against this shape only — never against vendor ids.
+    """
 
     voice_id: str
     name: str
     language: str = ""
     description: str = ""
+    gender: str = ""
+    accent: str = ""
+    age: str = ""
+    style_tags: tuple[str, ...] = ()
+    sample_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -46,7 +56,7 @@ class VoiceProvider(ABC):
     @property
     @abstractmethod
     def provider_id(self) -> str:
-        """Stable id (e.g. ``local``, ``elevenlabs``)."""
+        """Stable id (e.g. ``kokoro``, ``elevenlabs``)."""
 
     @abstractmethod
     def synthesize(self, request: VoiceSynthesisRequest) -> VoiceSynthesisResponse:

@@ -1,9 +1,10 @@
-"""Application sidebar with brand mark and navigation."""
+"""Application sidebar with brand mark, navigation, and live Status card."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.branding.icons import create_logo_pixmap
+from app.ui.widgets.status_card import StatusCard
 
 
 class Sidebar(QFrame):
@@ -22,7 +23,7 @@ class Sidebar(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(232)
+        self.setFixedWidth(268)
 
         brand = QWidget()
         brand.setObjectName("SidebarBrand")
@@ -63,7 +64,10 @@ class Sidebar(QFrame):
             self._buttons[key] = button
             layout.addWidget(button)
 
-        layout.addStretch()
+        layout.addSpacing(10)
+        self._status_card = StatusCard()
+        layout.addWidget(self._status_card)
+        layout.addStretch(1)
 
         about = QPushButton("About")
         about.setProperty("navButton", True)
@@ -71,6 +75,10 @@ class Sidebar(QFrame):
         layout.addWidget(about)
 
         self.set_active("dashboard")
+
+    @property
+    def status_card(self) -> StatusCard:
+        return self._status_card
 
     def _on_nav(self, key: str) -> None:
         self.set_active(key)

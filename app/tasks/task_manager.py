@@ -12,7 +12,9 @@ from app.pipelines.voice_progress import VoiceQueueProgress
 from app.render.progress import MovieQueueProgress
 from app.tasks.image_worker import ImageGenerationWorker
 from app.tasks.movie_worker import MovieGenerationWorker
+from app.tasks.thumbnail_worker import ThumbnailGenerationWorker
 from app.tasks.voice_worker import VoiceGenerationWorker
+from app.thumbnail.progress import ThumbnailQueueProgress
 
 
 class TaskManager(QObject):
@@ -28,13 +30,20 @@ class TaskManager(QObject):
     movie_progress = Signal(object)
     movie_finished = Signal(object)
     movie_running_changed = Signal(bool)
+    thumbnail_progress = Signal(object)
+    thumbnail_finished = Signal(object)
+    thumbnail_running_changed = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._engine: ProductionEngine | None = None
         self._thread: QThread | None = None
         self._worker: (
-            ImageGenerationWorker | VoiceGenerationWorker | MovieGenerationWorker | None
+            ImageGenerationWorker
+            | VoiceGenerationWorker
+            | MovieGenerationWorker
+            | ThumbnailGenerationWorker
+            | None
         ) = None
         self._job_kind: str | None = None
         self._job: tuple[str, str] | None = None
@@ -62,6 +71,10 @@ class TaskManager(QObject):
         return self.is_busy and self._job_kind == "movie"
 
     @property
+    def is_thumbnail_running(self) -> bool:
+        return self.is_busy and self._job_kind == "thumbnail"
+
+    @property
     def active_image_job(self) -> tuple[str, str] | None:
         return self._job if self._job_kind == "images" else None
 
@@ -72,6 +85,10 @@ class TaskManager(QObject):
     @property
     def active_movie_job(self) -> tuple[str, str] | None:
         return self._job if self._job_kind == "movie" else None
+
+    @property
+    def active_thumbnail_job(self) -> tuple[str, str] | None:
+        return self._job if self._job_kind == "thumbnail" else None
 
     def bind_engine(self, engine: ProductionEngine) -> None:
         self._engine = engine
@@ -145,6 +162,29 @@ class TaskManager(QObject):
             failed_slot=self._on_movie_failed,
         )
 
+    def start_thumbnail(
+        self,
+        engine: ProductionEngine,
+        context: PipelineContext,
+        *,
+        channel_name: str,
+        project_folder: str,
+    ) -> bool:
+        if self.is_busy:
+            return False
+        return self._start_job(
+            "thumbnail",
+            engine,
+            ThumbnailGenerationWorker(engine, context),
+            channel_name,
+            project_folder,
+            status="Generating Thumbnail…",
+            running_signal=self.thumbnail_running_changed,
+            progress_slot=self._on_thumbnail_progress,
+            finished_slot=self._on_thumbnail_finished,
+            failed_slot=self._on_thumbnail_failed,
+        )
+
     def _start_job(
         self,
         kind: str,
@@ -200,6 +240,12 @@ class TaskManager(QObject):
         if self.is_movie_running:
             self._set_status("Stopping after current scene…")
 
+    def stop_thumbnail(self) -> None:
+        if self._engine is not None:
+            self._engine.request_cancel()
+        if self.is_thumbnail_running:
+            self._set_status("Stopping thumbnail…")
+
     def is_job_for(self, channel_name: str, project_folder: str) -> bool:
         return self._job == (channel_name, project_folder)
 
@@ -239,6 +285,18 @@ class TaskManager(QObject):
         self._set_status("Failed")
         self.movie_finished.emit(PipelineResult.failed(message, errors=[message]))
 
+    def _on_thumbnail_progress(self, progress: ThumbnailQueueProgress) -> None:
+        self._set_status(f"Generating Thumbnail — {progress.message}")
+        self.thumbnail_progress.emit(progress)
+
+    def _on_thumbnail_finished(self, result: PipelineResult) -> None:
+        self._set_status(self._status_for_result(result))
+        self.thumbnail_finished.emit(result)
+
+    def _on_thumbnail_failed(self, message: str) -> None:
+        self._set_status("Failed")
+        self.thumbnail_finished.emit(PipelineResult.failed(message, errors=[message]))
+
     def _on_thread_finished(self) -> None:
         kind = self._job_kind
         self._thread = None
@@ -251,6 +309,8 @@ class TaskManager(QObject):
             self.voice_running_changed.emit(False)
         elif kind == "movie":
             self.movie_running_changed.emit(False)
+        elif kind == "thumbnail":
+            self.thumbnail_running_changed.emit(False)
         if self._status.startswith("Stopping") or self._status.startswith("Generating"):
             self._set_status("Ready")
 

@@ -11,6 +11,8 @@ from collections.abc import Sequence
 
 from app.core.app_config import AppConfig
 from app.core.project_root import require_project_root
+from app.core.voice_settings import VoiceSettings
+from app.channels.voice_preferences import ChannelVoicePreferences
 from app.pipelines.base import Pipeline
 from app.pipelines.context import ChannelDefaults, PipelineContext
 from app.pipelines.image_pipeline import ImagePipeline, ProgressCallback
@@ -20,7 +22,11 @@ from app.pipelines.production_sheet_pipeline import ProductionSheetPipeline
 from app.pipelines.registry import PipelineRegistry
 from app.pipelines.results import PipelineOutcome, PipelineResult
 from app.pipelines.script_pipeline import ScriptPipeline
+from app.pipelines.shorts_pipeline import ShortsPipeline
+from app.pipelines.shorts_pipeline import ProgressCallback as ShortsProgressCallback
 from app.pipelines.states import PipelineState
+from app.pipelines.thumbnail_pipeline import ThumbnailPipeline
+from app.pipelines.thumbnail_pipeline import ProgressCallback as ThumbnailProgressCallback
 from app.pipelines.voice_pipeline import VoicePipeline
 from app.pipelines.voice_pipeline import ProgressCallback as VoiceProgressCallback
 from app.projects.models import Project
@@ -37,10 +43,15 @@ from app.providers.registry import ProviderRegistry
 from app.providers.voice_base import VoiceProvider
 from app.providers.voice_registry import VoiceProviderRegistry
 from app.render.ffmpeg import FFmpegProcess
+from app.shorts.settings import ShortsSettings
+from app.thumbnail.modes import ThumbnailMode
+from app.thumbnail.settings import ThumbnailSettings
 
 QueueProgressCallback = ProgressCallback
 VoiceQueueProgressCallback = VoiceProgressCallback
 MovieQueueProgressCallback = MovieProgressCallback
+ThumbnailQueueProgressCallback = ThumbnailProgressCallback
+ShortsQueueProgressCallback = ShortsProgressCallback
 
 
 class ProductionEngine:
@@ -108,6 +119,70 @@ class ProductionEngine:
         if self._voice_provider_override is not None:
             return self._voice_provider_override
         return self._voice_providers.require_voice_provider()
+
+    def resolve_voice_settings_for(self, context: PipelineContext) -> VoiceSettings:
+        """Merge app voice settings with per-channel narrator preferences.
+
+        If the preferred voice id is missing from the live catalogue, silently
+        rematch by language / gender / style tags so generation does not fail.
+        """
+        from app.providers.voice_metadata import resolve_available_voice
+
+        prefs = ChannelVoicePreferences.from_mapping(context.channel_defaults.voice)
+        if prefs.is_empty():
+            settings = self._config.voice
+            gender = ""
+            styles: list[str] = []
+            language = settings.language
+            provider_id = self._config.voice_provider
+        else:
+            settings = prefs.apply_to_settings(self._config.voice)
+            gender = prefs.gender
+            styles = list(prefs.style_tags)
+            language = prefs.language or settings.language
+            provider_id = prefs.provider or self._config.voice_provider
+
+        try:
+            provider = self._voice_providers.require_voice_provider(
+                provider_id=provider_id,
+                settings=settings,
+            )
+            voices = provider.list_voices()
+        except Exception:  # noqa: BLE001
+            return settings
+
+        resolved, _warning = resolve_available_voice(
+            voices,
+            preferred_voice_id=settings.voice_id,
+            gender=gender,
+            style_tags=styles,
+            language=language,
+        )
+        if resolved is None or resolved.voice_id == settings.voice_id:
+            return settings
+        return VoiceSettings(
+            api_key=settings.api_key,
+            voice_id=resolved.voice_id,
+            voice_name=resolved.name,
+            language=resolved.language or settings.language,
+            model=settings.model,
+            stability=settings.stability,
+            style=settings.style,
+            speed=settings.speed,
+            similarity=settings.similarity,
+            output_format=settings.output_format,
+        )
+
+    def resolve_voice_provider_for(self, context: PipelineContext) -> VoiceProvider:
+        if self._voice_provider_override is not None:
+            return self._voice_provider_override
+        prefs = ChannelVoicePreferences.from_mapping(context.channel_defaults.voice)
+        settings = self.resolve_voice_settings_for(context)
+        provider_id = prefs.provider or self._config.voice_provider
+        return self._voice_providers.require_voice_provider(
+            provider_id=provider_id,
+            settings=settings,
+        )
 
     def request_cancel(self) -> None:
         """Cooperative cancel of the active pipeline (after current unit of work)."""
@@ -297,12 +372,17 @@ class ProductionEngine:
         *,
         on_queue_progress: VoiceQueueProgressCallback | None = None,
     ) -> PipelineResult:
-        """Generate one complete narration MP3 from the project script."""
+        """Generate one complete narration WAV via the Voice Service."""
         try:
-            provider = self.resolve_voice_provider()
+            provider = self.resolve_voice_provider_for(context)
         except ProviderConfigurationError as exc:
             return PipelineResult.failed(str(exc), errors=[str(exc)])
-        pipeline = VoicePipeline(provider, on_queue_progress=on_queue_progress)
+        settings = self.resolve_voice_settings_for(context)
+        pipeline = VoicePipeline(
+            provider,
+            settings,
+            on_queue_progress=on_queue_progress,
+        )
         return self.execute(pipeline, context)
 
     def regenerate_voice(
@@ -335,6 +415,78 @@ class ProductionEngine:
         on_queue_progress: MovieQueueProgressCallback | None = None,
     ) -> PipelineResult:
         return self.generate_movie(context, on_queue_progress=on_queue_progress)
+
+    def generate_thumbnail(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: ThumbnailQueueProgressCallback | None = None,
+        settings: ThumbnailSettings | None = None,
+    ) -> PipelineResult:
+        """Create the project thumbnail via the Thumbnail Service."""
+        thumb_settings = settings or ThumbnailSettings()
+        provider: ImageProvider | None = None
+        mode = (thumb_settings.mode or ThumbnailMode.SELECT.value).strip().casefold()
+        if mode == ThumbnailMode.GENERATE.value:
+            try:
+                provider = self.resolve_image_provider()
+            except ProviderConfigurationError as exc:
+                return PipelineResult.failed(str(exc), errors=[str(exc)])
+        else:
+            # Select/candidates do not require a provider; attach one when available.
+            try:
+                provider = self.resolve_image_provider()
+            except ProviderConfigurationError:
+                provider = None
+
+        pipeline = ThumbnailPipeline(
+            thumb_settings,
+            image_provider=provider,
+            on_queue_progress=on_queue_progress,
+        )
+        return self.execute(pipeline, context)
+
+    def regenerate_thumbnail(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: ThumbnailQueueProgressCallback | None = None,
+        settings: ThumbnailSettings | None = None,
+    ) -> PipelineResult:
+        return self.generate_thumbnail(
+            context,
+            on_queue_progress=on_queue_progress,
+            settings=settings,
+        )
+
+    def generate_shorts(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: ShortsQueueProgressCallback | None = None,
+        settings: ShortsSettings | None = None,
+    ) -> PipelineResult:
+        """Create YouTube Shorts via the Shorts Service."""
+        ffmpeg = self._ffmpeg_override or FFmpegProcess(self._config.movie.ffmpeg_path)
+        pipeline = ShortsPipeline(
+            settings or ShortsSettings(),
+            ffmpeg=ffmpeg,
+            on_queue_progress=on_queue_progress,
+        )
+        return self.execute(pipeline, context)
+
+    def regenerate_shorts(
+        self,
+        context: PipelineContext,
+        *,
+        on_queue_progress: ShortsQueueProgressCallback | None = None,
+        settings: ShortsSettings | None = None,
+    ) -> PipelineResult:
+        return self.generate_shorts(
+            context,
+            on_queue_progress=on_queue_progress,
+            settings=settings,
+        )
 
     def execute_registered(
         self,

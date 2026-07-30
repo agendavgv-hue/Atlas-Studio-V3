@@ -1,13 +1,11 @@
-"""Local Voice Engine — free default TTS provider (architecture reserved).
+"""Local Voice Engine — legacy provider id retained for compatibility.
 
-Public identity is ``local`` (Local Voice Engine). The concrete synthesis
-backend is an internal detail and may be replaced without UX changes.
+Sprint 11+: Kokoro is the default local VoiceProvider
+(``app.providers.kokoro.KokoroProvider``). Configurations that still store
+``voice_provider = "local"`` are resolved to Kokoro by VoiceProviderRegistry.
 
-Status (Sprint 7 pause):
-    The previous candidate backend was not compatible with Atlas Studio's
-    primary runtime (Python 3.13). Local synthesis is intentionally disabled
-    until a Python 3.13–compatible engine is selected. Provider abstraction,
-    registry, TaskManager, and Voice Pipeline interfaces remain intact.
+This module keeps the historical constants and a thin unavailable stub for
+older tests/docs that reference Local Voice Engine by name.
 """
 
 from __future__ import annotations
@@ -21,27 +19,20 @@ from app.providers.voice_base import (
     VoiceSynthesisResponse,
 )
 
-# User-facing provider id — never expose a specific engine name in Settings.
+# Legacy id — registry aliases this to KokoroProvider.
 LOCAL_VOICE_PROVIDER_ID = "local"
-LOCAL_VOICE_PROVIDER_LABEL = "Local Voice Engine (Recommended)"
+LOCAL_VOICE_PROVIDER_LABEL = "Local Voice Engine (Legacy)"
 
 LOCAL_VOICE_UNAVAILABLE_MESSAGE = (
-    "Local Voice Engine is temporarily unavailable. "
-    "Atlas Studio targets Python 3.13; a compatible free local backend "
-    "has not been selected yet. Voice generation will stay disabled until "
-    "that backend is ready. Optional cloud providers remain available in Settings."
+    "Local Voice Engine id is legacy. "
+    "Atlas Studio now uses Kokoro ONNX as the default local provider. "
+    "Select Kokoro in Settings, or install dependencies with: "
+    "pip install -r requirements-voice-local.txt"
 )
-
-# Reserved catalogue — used once a Python 3.13–compatible backend ships.
-_LOCAL_VOICES: tuple[VoiceInfo, ...] = (
-    VoiceInfo("local_default", "Default", "en-US"),
-)
-
-_DEFAULT_VOICE_ID = "local_default"
 
 
 class LocalVoiceProvider(VoiceProvider):
-    """Default free voice provider slot. Synthesis postponed until backend ready."""
+    """Deprecated stub. Prefer ``KokoroProvider`` via the registry."""
 
     def __init__(self, settings: VoiceSettings) -> None:
         self._settings = settings

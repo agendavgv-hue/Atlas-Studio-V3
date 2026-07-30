@@ -16,6 +16,8 @@ from app.pipelines.artifacts import (
 from app.pipelines.context import ChannelDefaults
 from app.pipelines.engine import ProductionEngine
 from app.pipelines.results import PipelineOutcome
+from app.pipelines.sheet_format import CANONICAL_SHEET_EXAMPLE
+from app.pipelines.sheet_prompts import extract_image_prompts
 from app.projects.project_service import ProjectService
 from app.providers.base import TextProvider
 from app.providers.errors import ProviderConfigurationError
@@ -25,8 +27,9 @@ from app.providers.registry import ProviderRegistry
 class FakeTextProvider(TextProvider):
     """Test-only provider. Must never be used in production."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, sheet_without_prompts: bool = False) -> None:
         self.calls: list[tuple[str | None, str]] = []
+        self._sheet_without_prompts = sheet_without_prompts
 
     @property
     def provider_id(self) -> str:
@@ -35,13 +38,15 @@ class FakeTextProvider(TextProvider):
     def generate_text(self, prompt: str, *, system: str | None = None) -> str:
         self.calls.append((system, prompt))
         blob = f"{system or ''}\n{prompt}".casefold()
-        if "production sheet" in blob or "convert the narration" in blob:
-            return (
-                "Scene 1\n"
-                "Narration: Opening lines about Atlantis.\n"
-                "Visual: Aerial over ocean ruins.\n"
-                "Duration: 8s\n"
-            )
+        if "production sheet" in blob or "convert the narration" in blob or "image 01" in blob:
+            if self._sheet_without_prompts:
+                return (
+                    "Scene 1\n"
+                    "Narration: Opening lines about Atlantis.\n"
+                    "Visual: Aerial over ocean ruins.\n"
+                    "Duration: 8s\n"
+                )
+            return CANONICAL_SHEET_EXAMPLE
         return (
             "Welcome to the lost city of Atlantis.\n\n"
             "Beneath the waves, ancient towers still gleam.\n"
@@ -85,7 +90,9 @@ class GenerateProductionTests(unittest.TestCase):
             self.assertTrue(script_path.is_file())
             self.assertTrue(sheet_path.is_file())
             self.assertIn("Atlantis", script_path.read_text(encoding="utf-8"))
-            self.assertIn("Scene 1", sheet_path.read_text(encoding="utf-8"))
+            sheet_text = sheet_path.read_text(encoding="utf-8")
+            self.assertIn("IMAGE 01", sheet_text)
+            self.assertTrue(extract_image_prompts(sheet_text))
             self.assertIn(f"{SCRIPT_FOLDER}/{SCRIPT_FILENAME}", result.artifacts)
             self.assertIn(
                 f"{SCRIPT_FOLDER}/{PRODUCTION_SHEET_FILENAME}",
@@ -96,6 +103,24 @@ class GenerateProductionTests(unittest.TestCase):
             self.assertTrue(progress.step("script").complete)
             self.assertTrue(progress.step("production_sheet").complete)
             self.assertEqual(projects.lifecycle_status(project.channel_name, project.folder_name), "In Progress")
+
+    def test_production_sheet_rejects_output_without_image_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeTextProvider(sheet_without_prompts=True)
+            _, _, _, engine, context = _setup(Path(tmp), provider=fake)
+            result = engine.generate_production(context)
+            self.assertEqual(result.outcome, PipelineOutcome.FAILED)
+            self.assertTrue(
+                any("image prompt" in err.casefold() for err in result.errors),
+                msg=result.errors,
+            )
+            sheet_path = context.folder(SCRIPT_FOLDER) / PRODUCTION_SHEET_FILENAME
+            self.assertFalse(sheet_path.is_file())
+
+    def test_canonical_sheet_example_is_parseable(self) -> None:
+        prompts = extract_image_prompts(CANONICAL_SHEET_EXAMPLE)
+        self.assertEqual(len(prompts), 3)
+        self.assertIn("ocean ruins", prompts[0].prompt.casefold())
 
     def test_missing_provider_returns_configuration_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
