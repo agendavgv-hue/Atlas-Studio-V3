@@ -1,0 +1,66 @@
+{
+  "Hollow Atlas": {
+    "display_name": "Hollow Atlas",
+    "signature": "A Hollow Atlas thumbnail is unmistakable without a logo: one ancient icon, warm gold against charcoal dark, vast empty left space, museum stillness, high contrast mystery.",
+    "emotion": [
+      "mystery",
+      "wonder",
+      "discovery",
+      "ancient secrets"
+    ],
+    "visual_language": {
+      "simplicity": "high",
+      "hero_subjects": 1,
+      "composition": "clean",
+      "background": "supporting only",
+      "contrast": "high",
+      "headline_side": "left",
+      "headline_size": "very_large",
+      "empty_space": "required"
+    },
+    "color_language": {
+      "primary": "warm gold",
+      "secondary": "dark charcoal",
+      "accent": "subtle amber"
+    },
+    "identity_rules": [
+      "one hero only — never a crowd of relics",
+      "background must support, never compete",
+      "left third stays empty for the headline",
+      "readable at YouTube small-grid size",
+      "looks like a documentary artifact reveal, not fantasy art"
+    ]
+  },
+  "Mirror Drift": {
+    "display_name": "Mirror Drift",
+    "signature": "A Mirror Drift thumbnail is unmistakable without a logo: one precise tech subject, cool blue-white light, industrial clarity, open left space, sharp perspective, high-contrast future.",
+    "emotion": [
+      "curiosity",
+      "awe",
+      "urgency",
+      "technological revelation"
+    ],
+    "visual_language": {
+      "simplicity": "high",
+      "hero_subjects": 1,
+      "composition": "clean",
+      "background": "supporting only",
+      "contrast": "high",
+      "headline_side": "left",
+      "headline_size": "very_large",
+      "empty_space": "required"
+    },
+    "color_language": {
+      "primary": "cool white",
+      "secondary": "deep blue-black",
+      "accent": "electric cyan"
+    },
+    "identity_rules": [
+      "one hero only — never a gadget collage",
+      "background is supporting infrastructure or soft haze only",
+      "left third stays empty for the headline",
+      "readable at YouTube small-grid size",
+      "looks like precise industrial futurism, not generic sci-fi chaos"
+    ]
+  }
+}

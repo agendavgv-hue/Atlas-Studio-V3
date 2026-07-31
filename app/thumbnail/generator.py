@@ -1,18 +1,16 @@
 """ThumbnailGenerator — produce thumbnail image bytes only.
 
-Provider-agnostic: talks only to ``ImageProvider`` (Provider Framework ABC).
-Never selects sources, exports project files, or writes manifests.
+Provider-agnostic: talks only to ``ImageProvider``. Separate from the video
+Image Generator pipeline — this module never reads production sheet prompts.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.pipelines.context import PipelineContext
 from app.providers.errors import ProviderError
 from app.providers.image_base import ImageGenerationRequest, ImageProvider
-from app.thumbnail.modes import ThumbnailMode
-from app.thumbnail.selector import SelectionDecision
+from app.thumbnail.prompt_builder import ThumbnailPromptPlan
 
 
 @dataclass(frozen=True)
@@ -26,33 +24,63 @@ class ThumbnailGenerationResult:
     width: int = 0
     height: int = 0
     generation_time_ms: float = 0.0
+    variant_id: str = ""
 
 
 class ThumbnailGenerator:
-    """Create thumbnail PNG bytes from a ``SelectionDecision``.
-
-    For ``GENERATE``, requires a prepared ``ImageGenerationRequest`` and an
-    ``ImageProvider``. The generator never constructs provider-specific APIs.
-    """
+    """Create thumbnail PNG bytes via the ImageProvider ABC only."""
 
     def __init__(self, provider: ImageProvider | None = None) -> None:
         self._provider = provider
 
+    def generate_variant(self, plan: ThumbnailPromptPlan, *, settings) -> ThumbnailGenerationResult:
+        if self._provider is None:
+            raise ProviderError(
+                "No image provider is configured for thumbnail generation."
+            )
+        if not (plan.prompt or "").strip():
+            raise ProviderError("Thumbnail variant requires a non-empty prompt.")
+
+        request = ImageGenerationRequest(
+            prompt=plan.prompt,
+            negative_prompt=plan.negative_prompt,
+            width=int(getattr(settings, "width", 1280) or 1280),
+            height=int(getattr(settings, "height", 720) or 720),
+            steps=int(getattr(settings, "steps", 0) or 0),
+            cfg_scale=float(getattr(settings, "cfg_scale", 0.0) or 0.0),
+            sampler=str(getattr(settings, "sampler", "") or ""),
+            seed=int(getattr(settings, "seed", -1) if getattr(settings, "seed", -1) is not None else -1),
+            model=str(getattr(settings, "model", "") or ""),
+        )
+        response = self._provider.generate_image(request)
+        if not response.image_png:
+            raise ProviderError(
+                f"Image provider returned an empty thumbnail for variant {plan.variant_id}."
+            )
+        return ThumbnailGenerationResult(
+            image_png=response.image_png,
+            provider_id=self._provider.provider_id,
+            seed=response.seed,
+            model=response.model,
+            width=response.width,
+            height=response.height,
+            generation_time_ms=response.generation_time_ms,
+            variant_id=plan.variant_id,
+        )
+
     def generate(
         self,
-        decision: SelectionDecision,
+        decision,
         request: ImageGenerationRequest | None,
-        context: PipelineContext,
+        context,
     ) -> ThumbnailGenerationResult:
-        """Return PNG bytes for the service to export.
+        """Legacy Sprint 9 entry point kept for selector-based unit tests."""
+        del context
+        from app.thumbnail.modes import ThumbnailMode
 
-        ``context`` is accepted for pipeline consistency and future hooks;
-        Sprint 9 generation uses ``decision`` + ``request`` + provider only.
-        """
-        del context  # reserved — keep signature stable for Service/Pipeline
-        if decision.mode is ThumbnailMode.GENERATE:
-            return self._generate_via_provider(request)
-        return self._load_selected_image(decision)
+        if decision.mode in {ThumbnailMode.SELECT, ThumbnailMode.CANDIDATES}:
+            return self.load_image_bytes(decision.source_image_path)
+        return self._generate_via_provider(request)
 
     def _generate_via_provider(
         self,
@@ -83,21 +111,18 @@ class ThumbnailGenerator:
             generation_time_ms=response.generation_time_ms,
         )
 
-    @staticmethod
-    def _load_selected_image(decision: SelectionDecision) -> ThumbnailGenerationResult:
-        path = decision.source_image_path
+    def load_image_bytes(self, path) -> ThumbnailGenerationResult:
+        from pathlib import Path
+
         if path is None:
             raise ProviderError("Select mode requires a source image path.")
-        if not path.is_file():
-            raise ProviderError(f"Selected thumbnail source is missing: {path}")
+        file_path = Path(path)
+        if not file_path.is_file():
+            raise ProviderError(f"Selected thumbnail source is missing: {file_path}")
         try:
-            payload = path.read_bytes()
+            payload = file_path.read_bytes()
         except OSError as exc:
             raise ProviderError(f"Cannot read selected thumbnail source: {exc}") from exc
         if not payload:
-            raise ProviderError(f"Selected thumbnail source is empty: {path}")
-        return ThumbnailGenerationResult(
-            image_png=payload,
-            provider_id="",
-            seed=-1,
-        )
+            raise ProviderError(f"Selected thumbnail source is empty: {file_path}")
+        return ThumbnailGenerationResult(image_png=payload, provider_id="")

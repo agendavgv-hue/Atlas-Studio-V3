@@ -11,6 +11,7 @@ from app.core.storage import Storage, build_storage
 from app.pipelines.engine import ProductionEngine
 from app.pipelines.registry import PipelineRegistry
 from app.projects.project_service import ProjectService
+from app.providers.forge_status import ForgeStatusService
 from app.providers.image_registry import ImageProviderRegistry
 from app.providers.registry import ProviderRegistry
 from app.providers.voice_registry import VoiceProviderRegistry
@@ -28,6 +29,7 @@ class AtlasApplication(QApplication):
     projects: ProjectService
     production: ProductionEngine
     tasks: TaskManager
+    forge_status: ForgeStatusService
 
     def __init__(self, argv: list[str], *, auto_bootstrap: bool = True) -> None:
         super().__init__(argv)
@@ -39,7 +41,9 @@ class AtlasApplication(QApplication):
 
         self._notification_host = None
         self.tasks = TaskManager(self)
+        self.forge_status = ForgeStatusService(parent=self)
         self._bootstrapped = False
+        self.aboutToQuit.connect(self._on_about_to_quit)
         if auto_bootstrap:
             self.bootstrap()
 
@@ -68,6 +72,11 @@ class AtlasApplication(QApplication):
         step("Production Engine")
         self.rebuild_production_engine()
 
+        step("Forge Status")
+        self.forge_status.update_settings(self.config.forge)
+        self.forge_status.start()
+        self.forge_status.ensure_running_if_configured()
+
         step("Ready")
         self._bootstrapped = True
 
@@ -87,6 +96,8 @@ class AtlasApplication(QApplication):
             voice_provider_registry=VoiceProviderRegistry(self.config),
         )
         self.tasks.bind_engine(self.production)
+        if getattr(self, "forge_status", None) is not None:
+            self.forge_status.update_settings(self.config.forge)
 
     def set_notification_host(self, host) -> None:
         self._notification_host = host
@@ -95,3 +106,17 @@ class AtlasApplication(QApplication):
         host = self._notification_host
         if host is not None:
             host.show_toast(title, message)
+
+    def _on_about_to_quit(self) -> None:
+        """Stop polling; close Forge only when Atlas owns it and preference is set."""
+        service = getattr(self, "forge_status", None)
+        if service is None:
+            return
+        service.stop_polling()
+        config = getattr(self, "config", None)
+        if (
+            config is not None
+            and getattr(config.forge, "close_forge_on_exit", False)
+            and service.started_by_atlas
+        ):
+            service.stop_forge()

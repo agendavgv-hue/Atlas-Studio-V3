@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -133,6 +134,16 @@ class SettingsPage(QWidget):
         self._forge_height = QLineEdit()
         self._forge_seed = QLineEdit()
         self._forge_negative = QLineEdit()
+        self._forge_launch_path = QLineEdit()
+        self._forge_launch_path.setPlaceholderText(
+            "Path to webui-user.bat / webui.bat (required for auto-start)"
+        )
+        self._forge_auto_start = QCheckBox("Automatically start Forge when Atlas starts")
+        self._forge_auto_start.setChecked(True)
+        self._forge_close_on_exit = QCheckBox("Close Forge when Atlas exits")
+        self._forge_close_on_exit.setToolTip(
+            "Only applies when Atlas started Forge. Prefills the exit confirmation."
+        )
 
         forge_form = QFormLayout()
         forge_form.addRow("Host", self._forge_host)
@@ -147,6 +158,16 @@ class SettingsPage(QWidget):
         forge_form.addRow("Height", self._forge_height)
         forge_form.addRow("Seed", self._forge_seed)
         forge_form.addRow("Negative Prompt", self._forge_negative)
+        launch_row = QHBoxLayout()
+        launch_row.addWidget(self._forge_launch_path, stretch=1)
+        browse_launch = QPushButton("Browse…")
+        browse_launch.clicked.connect(self._browse_forge_launch)
+        launch_row.addWidget(browse_launch)
+        forge_form.addRow("Launch Path", launch_row)
+        forge_form.addRow("", self._forge_auto_start)
+        forge_form.addRow("", self._forge_close_on_exit)
+
+        self._forge_section_anchor = image_label
 
         test_forge = QPushButton("Test Connection")
         test_forge.clicked.connect(self._test_forge)
@@ -399,6 +420,9 @@ class SettingsPage(QWidget):
         self._forge_height.setText(str(forge.height))
         self._forge_seed.setText(str(forge.seed))
         self._forge_negative.setText(forge.negative_prompt)
+        self._forge_launch_path.setText(forge.launch_path)
+        self._forge_auto_start.setChecked(bool(forge.auto_start_forge))
+        self._forge_close_on_exit.setChecked(bool(forge.close_forge_on_exit))
 
         voice_provider = app.config.voice_provider or KOKORO_PROVIDER_ID
         if voice_provider.casefold() in {LOCAL_VOICE_PROVIDER_ID, "kokoro"}:
@@ -542,8 +566,36 @@ class SettingsPage(QWidget):
                 "height": self._forge_height.text(),
                 "seed": self._forge_seed.text(),
                 "negative_prompt": self._forge_negative.text(),
+                "launch_path": self._forge_launch_path.text(),
+                "auto_start_forge": self._forge_auto_start.isChecked(),
+                "close_forge_on_exit": self._forge_close_on_exit.isChecked(),
             }
         )
+
+    def _browse_forge_launch(self) -> None:
+        start = self._forge_launch_path.text().strip() or str(Path.home())
+        chosen, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Forge Launch Script",
+            start,
+            "Launch scripts (*.bat *.cmd *.ps1 *.sh *);;All files (*.*)",
+        )
+        if chosen:
+            self._forge_launch_path.setText(chosen)
+
+    def focus_forge_section(self) -> None:
+        """Bring the Image Provider / Forge section into view."""
+        anchor = getattr(self, "_forge_section_anchor", None)
+        if anchor is not None:
+            anchor.setFocus(Qt.FocusReason.OtherFocusReason)
+            # Scroll parent QScrollArea if present.
+            parent = anchor.parentWidget()
+            while parent is not None:
+                if isinstance(parent, QScrollArea):
+                    parent.ensureWidgetVisible(anchor)
+                    break
+                parent = parent.parentWidget()
+        self._forge_host.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _test_forge(self) -> None:
         settings = self._read_forge_settings()
@@ -577,6 +629,9 @@ class SettingsPage(QWidget):
         app.config.forge = settings
         app.config.save()
         app.rebuild_production_engine()
+        app.forge_status.update_settings(settings)
+        if settings.auto_start_forge and not app.forge_status.probe_online():
+            app.forge_status.ensure_running_if_configured()
         self._status.setText(
             f"Image settings saved ({settings.host}:{settings.port}, {settings.width}×{settings.height})."
         )

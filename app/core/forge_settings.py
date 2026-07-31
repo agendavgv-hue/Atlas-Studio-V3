@@ -22,6 +22,9 @@ class ForgeSettings:
     height: int = 1024
     seed: int = -1
     negative_prompt: str = ""
+    launch_path: str = ""
+    auto_start_forge: bool = True
+    close_forge_on_exit: bool = False
 
     @property
     def base_url(self) -> str:
@@ -49,6 +52,9 @@ class ForgeSettings:
             height=max(64, _as_int(raw.get("height"), 1024)),
             seed=_as_int(raw.get("seed"), -1),
             negative_prompt=str(raw.get("negative_prompt") or ""),
+            launch_path=str(raw.get("launch_path") or "").strip(),
+            auto_start_forge=_as_bool(raw.get("auto_start_forge"), True),
+            close_forge_on_exit=_as_bool(raw.get("close_forge_on_exit"), False),
         )
 
 
@@ -64,3 +70,16 @@ def _as_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().casefold()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default

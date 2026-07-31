@@ -1,0 +1,23 @@
+{
+  "forbidden": [
+    "busy compositions",
+    "multiple main subjects",
+    "tiny objects",
+    "generic AI compositions",
+    "random people",
+    "random robots",
+    "random explosions",
+    "unnecessary lens flares",
+    "excessive blue light wash",
+    "text in the image",
+    "watermarks",
+    "logos",
+    "collage",
+    "split screen",
+    "cluttered backgrounds",
+    "cartoon",
+    "anime",
+    "low contrast flat lighting"
+  ],
+  "negative_prompt": "busy composition, multiple main subjects, tiny objects, generic AI composition, random people, random robots, random explosions, unnecessary lens flare, excessive blue light, text in image, watermark, logo, collage, split screen, cluttered background, cartoon, anime, low contrast, flat lighting"
+}

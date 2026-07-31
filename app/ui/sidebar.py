@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.branding.icons import create_logo_pixmap
+from app.ui.widgets.forge_status_indicator import ForgeStatusIndicator
 from app.ui.widgets.status_card import StatusCard
 
 
@@ -12,6 +13,8 @@ class Sidebar(QFrame):
 
     page_requested = Signal(str)
     about_requested = Signal()
+    forge_settings_requested = Signal()
+    forge_action_requested = Signal(str)
 
     NAV_ITEMS = (
         ("dashboard", "Dashboard"),
@@ -69,6 +72,11 @@ class Sidebar(QFrame):
         layout.addWidget(self._status_card)
         layout.addStretch(1)
 
+        self._forge_status = ForgeStatusIndicator()
+        self._forge_status.clicked.connect(self.forge_settings_requested.emit)
+        self._forge_status.action_requested.connect(self.forge_action_requested.emit)
+        layout.addWidget(self._forge_status)
+
         about = QPushButton("About")
         about.setProperty("navButton", True)
         about.clicked.connect(self.about_requested.emit)
@@ -79,6 +87,10 @@ class Sidebar(QFrame):
     @property
     def status_card(self) -> StatusCard:
         return self._status_card
+
+    @property
+    def forge_status(self) -> ForgeStatusIndicator:
+        return self._forge_status
 
     def _on_nav(self, key: str) -> None:
         self.set_active(key)

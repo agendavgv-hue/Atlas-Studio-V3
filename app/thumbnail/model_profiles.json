@@ -1,0 +1,132 @@
+{
+  "default": {
+    "display_name": "Default",
+    "separator": ". ",
+    "use_commas": false,
+    "prefer_short_blocks": true,
+    "cinematography_bias": true,
+    "max_block_words": 20,
+    "label_blocks": false,
+    "quality_tags": [
+      "photorealistic",
+      "sharp focus",
+      "high contrast",
+      "readable at small size"
+    ],
+    "notes": "Balanced professional thumbnail prompt structure."
+  },
+  "Flux Dev": {
+    "display_name": "Flux Dev",
+    "aliases": ["flux", "flux-dev", "flux_dev", "black-forest-labs-flux"],
+    "separator": ". ",
+    "use_commas": false,
+    "prefer_short_blocks": false,
+    "cinematography_bias": false,
+    "max_block_words": 28,
+    "label_blocks": false,
+    "quality_tags": [
+      "photorealistic",
+      "natural materials",
+      "clean focus"
+    ],
+    "notes": "Flux prefers flowing sentences and fewer comma stacks."
+  },
+  "Flux Kontext": {
+    "display_name": "Flux Kontext",
+    "aliases": ["flux-kontext", "flux_kontext", "kontext"],
+    "separator": ". ",
+    "use_commas": false,
+    "prefer_short_blocks": false,
+    "cinematography_bias": false,
+    "max_block_words": 26,
+    "label_blocks": false,
+    "quality_tags": [
+      "photorealistic",
+      "precise subject fidelity",
+      "clean framing"
+    ],
+    "notes": "Context-aware Flux — keep subject language explicit and spare."
+  },
+  "SDXL": {
+    "display_name": "SDXL",
+    "aliases": ["sdxl", "stable-diffusion-xl", "sd_xl"],
+    "separator": ", ",
+    "use_commas": true,
+    "prefer_short_blocks": true,
+    "cinematography_bias": false,
+    "max_block_words": 12,
+    "label_blocks": false,
+    "quality_tags": [
+      "photorealistic",
+      "sharp detail",
+      "high contrast"
+    ],
+    "notes": "SDXL responds well to short comma-separated visual blocks."
+  },
+  "Juggernaut XL": {
+    "display_name": "Juggernaut XL",
+    "aliases": ["juggernaut", "juggernautxl", "juggernaut-xl"],
+    "separator": ", ",
+    "use_commas": true,
+    "prefer_short_blocks": true,
+    "cinematography_bias": true,
+    "max_block_words": 14,
+    "label_blocks": false,
+    "quality_tags": [
+      "cinematic still",
+      "photorealistic",
+      "dramatic lighting",
+      "film grain subtle"
+    ],
+    "notes": "Juggernaut favors cinematography language and dramatic light."
+  },
+  "Pony": {
+    "display_name": "Pony",
+    "aliases": ["pony", "ponyxl", "pony-xl"],
+    "separator": ", ",
+    "use_commas": true,
+    "prefer_short_blocks": true,
+    "cinematography_bias": false,
+    "max_block_words": 12,
+    "label_blocks": false,
+    "quality_tags": [
+      "score_9",
+      "score_8_up",
+      "source_photo",
+      "photorealistic"
+    ],
+    "notes": "Pony prefers compact tagged blocks; keep subject first."
+  },
+  "DreamShaper": {
+    "display_name": "DreamShaper",
+    "aliases": ["dreamshaper", "dream-shaper"],
+    "separator": ", ",
+    "use_commas": true,
+    "prefer_short_blocks": true,
+    "cinematography_bias": true,
+    "max_block_words": 14,
+    "label_blocks": false,
+    "quality_tags": [
+      "photorealistic",
+      "cinematic color",
+      "soft atmospheric depth"
+    ],
+    "notes": "DreamShaper likes atmospheric cinematic cues without clutter."
+  },
+  "Stable Diffusion 3": {
+    "display_name": "Stable Diffusion 3",
+    "aliases": ["sd3", "stable-diffusion-3", "sd-3"],
+    "separator": ". ",
+    "use_commas": false,
+    "prefer_short_blocks": true,
+    "cinematography_bias": true,
+    "max_block_words": 18,
+    "label_blocks": false,
+    "quality_tags": [
+      "photorealistic",
+      "coherent composition",
+      "natural lighting"
+    ],
+    "notes": "SD3 prefers clear sentence blocks and coherent scene logic."
+  }
+}

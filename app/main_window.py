@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QStatusBar, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QStackedWidget,
+    QStatusBar,
+    QWidget,
+)
 
 from app.atlas_application import AtlasApplication
 from app.pipelines.image_progress import ImageQueueProgress
 from app.pipelines.results import PipelineOutcome
 from app.pipelines.voice_progress import VoiceQueueProgress
+from app.providers.backend_status import BackendStatus
 from app.render.progress import MovieQueueProgress
 from app.thumbnail.progress import ThumbnailQueueProgress
 from app.ui.branding.identity import WINDOW_TITLE
@@ -26,6 +35,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1200, 760)
         self.setMinimumSize(900, 600)
+        self._forge_exit_handled = False
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -73,12 +83,138 @@ class MainWindow(QMainWindow):
             app.tasks.movie_finished.connect(self._on_movie_finished)
             app.tasks.thumbnail_finished.connect(self._on_thumbnail_finished)
             self._on_global_status(app.tasks.status)
+            app.forge_status.status_changed.connect(self._on_forge_status)
+            app.forge_status.message_changed.connect(self._on_forge_message)
+            self._sync_forge_indicator()
 
         self._sidebar.page_requested.connect(self._show_page)
         self._sidebar.about_requested.connect(self._settings_page.open_about)
+        self._sidebar.forge_settings_requested.connect(self._open_forge_settings)
+        self._sidebar.forge_action_requested.connect(self._on_forge_action)
         self._projects_page.project_open_requested.connect(self._open_workspace)
         self._workspace_page.back_requested.connect(lambda: self._show_page("projects"))
         self._show_page("dashboard")
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        if not self._confirm_forge_shutdown():
+            event.ignore()
+            return
+        self._forge_exit_handled = True
+        super().closeEvent(event)
+
+    def _confirm_forge_shutdown(self) -> bool:
+        """Ask whether to close Forge when Atlas started it. Never kill external Forge."""
+        if self._forge_exit_handled:
+            return True
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return True
+        service = app.forge_status
+        if not service.started_by_atlas:
+            return True
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Atlas Studio")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText("Atlas started Forge for this session.")
+        box.setInformativeText("Do you want to close Forge when Atlas exits?")
+        close_cb = QCheckBox("Close Forge when Atlas exits")
+        close_cb.setChecked(bool(app.config.forge.close_forge_on_exit))
+        box.setCheckBox(close_cb)
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Ok)
+        if box.exec() != QMessageBox.StandardButton.Ok:
+            return False
+
+        should_close = close_cb.isChecked()
+        app.config.forge.close_forge_on_exit = should_close
+        try:
+            app.config.save()
+        except OSError:
+            pass
+        if should_close:
+            service.stop_forge()
+        else:
+            # Keep Forge running; clear ownership so aboutToQuit won't kill it.
+            service.release_ownership()
+        return True
+
+    def _on_forge_status(self, status: BackendStatus) -> None:
+        del status
+        self._sync_forge_indicator()
+
+    def _on_forge_message(self, message: str) -> None:
+        del message
+        self._sync_forge_indicator()
+
+    def _sync_forge_indicator(self) -> None:
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        service = app.forge_status
+        settings = service.settings
+        has_folder = bool((settings.launch_path or "").strip())
+        self._sidebar.forge_status.set_connection_info(
+            host=settings.host,
+            port=settings.port,
+            can_control_process=service.started_by_atlas,
+            has_launch_folder=has_folder,
+        )
+        self._sidebar.forge_status.set_status(service.status, service.message)
+
+    def _on_forge_action(self, action_id: str) -> None:
+        """Route indicator menu actions through ForgeStatusService only."""
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        service = app.forge_status
+        action = (action_id or "").strip().casefold()
+
+        if action == "settings":
+            self._open_forge_settings()
+            return
+        if action == "open_webui":
+            if not service.open_webui():
+                app.show_notification("Forge", "Could not open Forge WebUI.")
+            return
+        if action == "open_folder":
+            if not service.open_forge_folder():
+                app.show_notification(
+                    "Forge",
+                    "Set a Launch Path in Forge Settings to open the folder.",
+                )
+            return
+        if action == "start":
+            if not service.start_forge():
+                app.show_notification("Forge", service.message or "Could not start Forge.")
+            else:
+                app.show_notification("Forge", "Starting Forge...")
+            self._sync_forge_indicator()
+            return
+        if action == "stop":
+            if not service.stop_forge():
+                app.show_notification(
+                    "Forge",
+                    "Atlas can only stop Forge when it started it this session.",
+                )
+            else:
+                app.show_notification("Forge", "Forge stopped.")
+            self._sync_forge_indicator()
+            return
+        if action == "restart":
+            if not service.restart_forge():
+                app.show_notification("Forge", service.message or "Could not restart Forge.")
+            else:
+                app.show_notification("Forge", "Restarting Forge...")
+            self._sync_forge_indicator()
+
+    def _open_forge_settings(self) -> None:
+        self._show_page("settings")
+        focus = getattr(self._settings_page, "focus_forge_section", None)
+        if callable(focus):
+            focus()
 
     def _on_global_status(self, text: str) -> None:
         self._sidebar.status_card.set_from_status_text(text)

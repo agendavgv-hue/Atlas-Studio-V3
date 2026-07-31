@@ -1,0 +1,40 @@
+{
+  "Hollow Atlas": {
+    "display_name": "Hollow Atlas",
+    "colors": "warm gold grading, deep shadows, muted earth tones, antique brass highlights",
+    "lighting": "dramatic museum spotlight on the hero from upper-right, soft falloff into darkness, left side intentionally darker for headline",
+    "style": "cinematic documentary realism, museum quality, historical realism, realistic materials, ultra detailed, photorealistic",
+    "atmosphere": "dark atmosphere, mysterious, serious documentary mood",
+    "composition": "hero anchored on the right third, open darkened left third for headline, clean single-plane focus",
+    "camera": "slight low angle, medium-close cinematic framing, shallow depth of field",
+    "contrast": "high contrast, deep blacks, warm gold highlights",
+    "texture": "realistic aged materials, dust motes, tactile surfaces",
+    "background_style": "simplified dark historical environment, no clutter, soft bokeh",
+    "headline_position": "left",
+    "headline_color": "warm ivory / soft gold",
+    "headline_shadow": "strong dark drop shadow for readability",
+    "hero_scale": "hero subject fills about 40 percent of the frame",
+    "depth": "strong foreground-to-background depth, layered darkness",
+    "negative_prompt": "collage, CGI look, cartoon, anime, fantasy unless required by subject, random people, random unrelated objects, busy composition, clutter, text, watermark, logo, split screen, multiple subjects, low contrast, flat lighting",
+    "thumbnail_rules": "one hero subject, left side free for headline, clear background, strong focus, high contrast, deep depth, cinematic lighting, instantly readable at small YouTube size, no clutter, no tiny details, professional YouTube thumbnail design"
+  },
+  "Mirror Drift": {
+    "display_name": "Mirror Drift",
+    "colors": "blue and white lighting, cool industrial palette, clean metallic highlights",
+    "lighting": "strong directional cool key light, specular highlights on tech surfaces, left side reserved darker for headline",
+    "style": "cinematic futuristic realism, industrial realism, clean composition, ultra detailed, photorealistic, strong perspective",
+    "atmosphere": "modern, technological, precise, forward-looking",
+    "composition": "hero on the right with strong vanishing lines, open left negative space for headline",
+    "camera": "dynamic perspective, slight wide cinematic angle, crisp focus on hero",
+    "contrast": "high contrast cool whites against deep blue-black",
+    "texture": "brushed metal, glass, circuitry, clean industrial surfaces",
+    "background_style": "minimal industrial or space environment, uncluttered, atmospheric haze",
+    "headline_position": "left",
+    "headline_color": "cool white / electric cyan",
+    "headline_shadow": "dense blue-black halo shadow",
+    "hero_scale": "hero subject fills about 40 percent of the frame",
+    "depth": "strong perspective depth with clean layers",
+    "negative_prompt": "generic robots unless the subject is robotics, collage, cartoon, anime, clutter, random people, busy composition, text, watermark, logo, split screen, multiple subjects, low contrast, flat lighting, sci-fi fantasy fluff",
+    "thumbnail_rules": "one hero subject from the script topic, left side free for headline, clear background, strong focus, high contrast, deep depth, cinematic lighting, instantly readable at small YouTube size, no clutter, professional YouTube thumbnail design"
+  }
+}

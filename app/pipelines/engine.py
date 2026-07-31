@@ -423,25 +423,46 @@ class ProductionEngine:
         on_queue_progress: ThumbnailQueueProgressCallback | None = None,
         settings: ThumbnailSettings | None = None,
     ) -> PipelineResult:
-        """Create the project thumbnail via the Thumbnail Service."""
+        """Design professional YouTube thumbnails via the Intelligent Thumbnail Engine."""
+        from app.pipelines.thumbnail_pipeline import (
+            anti_ai_loader_for_config,
+            dna_loader_for_config,
+            style_loader_for_config,
+        )
+        from app.thumbnail.modes import ThumbnailMode
+
         thumb_settings = settings or ThumbnailSettings()
-        provider: ImageProvider | None = None
-        mode = (thumb_settings.mode or ThumbnailMode.SELECT.value).strip().casefold()
-        if mode == ThumbnailMode.GENERATE.value:
+        mode = (thumb_settings.mode or ThumbnailMode.INTELLIGENT.value).strip().casefold()
+
+        image_provider: ImageProvider | None = None
+        text_provider = None
+        if mode in {
+            ThumbnailMode.INTELLIGENT.value,
+            ThumbnailMode.GENERATE.value,
+            "intelligent",
+            "generate",
+        }:
             try:
-                provider = self.resolve_image_provider()
+                image_provider = self.resolve_image_provider()
+            except ProviderConfigurationError as exc:
+                return PipelineResult.failed(str(exc), errors=[str(exc)])
+            try:
+                text_provider = self.resolve_text_provider()
             except ProviderConfigurationError as exc:
                 return PipelineResult.failed(str(exc), errors=[str(exc)])
         else:
-            # Select/candidates do not require a provider; attach one when available.
             try:
-                provider = self.resolve_image_provider()
+                image_provider = self.resolve_image_provider()
             except ProviderConfigurationError:
-                provider = None
+                image_provider = None
 
         pipeline = ThumbnailPipeline(
             thumb_settings,
-            image_provider=provider,
+            image_provider=image_provider,
+            text_provider=text_provider,
+            style_loader=style_loader_for_config(self._config),
+            dna_loader=dna_loader_for_config(self._config),
+            anti_ai_loader=anti_ai_loader_for_config(self._config),
             on_queue_progress=on_queue_progress,
         )
         return self.execute(pipeline, context)

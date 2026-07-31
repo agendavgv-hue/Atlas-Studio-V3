@@ -152,6 +152,57 @@ def stylesheet() -> str:
         border-radius: 6px;
     }}
 
+    QWidget#ForgeStatusIndicator {{
+        background-color: {c["bg_elevated"]};
+        border: 1px solid {c["border"]};
+        border-radius: 10px;
+        margin: 4px 12px 4px 12px;
+    }}
+
+    QLabel#ForgeStatusIcon {{
+        font-size: 13px;
+        background: transparent;
+        min-width: 18px;
+    }}
+
+    QLabel#ForgeStatusDot {{
+        font-size: 14px;
+        font-weight: 700;
+        background: transparent;
+        min-width: 14px;
+    }}
+
+    QLabel#ForgeStatusDot[forgeState="online"] {{
+        color: #3DDC97;
+    }}
+
+    QLabel#ForgeStatusDot[forgeState="offline"] {{
+        color: #E85D5D;
+    }}
+
+    QLabel#ForgeStatusDot[forgeState="starting"] {{
+        color: #E0A100;
+    }}
+
+    QLabel#ForgeStatusText {{
+        font-size: 12px;
+        font-weight: 600;
+        background: transparent;
+        color: {c["text"]};
+    }}
+
+    QLabel#ForgeStatusText[forgeState="online"] {{
+        color: {c["text"]};
+    }}
+
+    QLabel#ForgeStatusText[forgeState="offline"] {{
+        color: {c["text_muted"]};
+    }}
+
+    QLabel#ForgeStatusText[forgeState="starting"] {{
+        color: {c["text"]};
+    }}
+
     QPushButton[navButton="true"] {{
         background-color: transparent;
         color: {c["text_muted"]};
