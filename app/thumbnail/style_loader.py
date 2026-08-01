@@ -92,15 +92,21 @@ class ChannelStyleLoader:
         return self._packaged_path
 
     def load_all(self) -> dict[str, ChannelThumbnailStyle]:
-        path = self.resolve_style_path()
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raise ValueError(f"Invalid channel_style.json (expected object): {path}")
+        """Merge packaged + override files (overrides win; packaged HA/MD always base)."""
         styles: dict[str, ChannelThumbnailStyle] = {}
-        for key, entry in raw.items():
-            if not isinstance(entry, dict):
+        for path in reversed(self.style_file_candidates()):
+            if not path.is_file():
                 continue
-            styles[str(key)] = _style_from_mapping(str(key), entry)
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(raw, dict):
+                continue
+            for key, entry in raw.items():
+                if not isinstance(entry, dict):
+                    continue
+                styles[str(key)] = _style_from_mapping(str(key), entry)
         return styles
 
     def get_style(self, channel_name: str) -> ChannelThumbnailStyle:

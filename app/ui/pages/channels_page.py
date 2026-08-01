@@ -29,6 +29,7 @@ from app.providers.elevenlabs import ElevenLabsVoiceProvider
 from app.providers.kokoro import KOKORO_PROVIDER_ID, KokoroProvider
 from app.providers.voice_base import VoiceInfo
 from app.providers.voice_metadata import select_closest_voice
+from app.ui.dialogs.ai_channel_creator_dialog import AIChannelCreatorDialog
 from app.ui.widgets.empty_state import EmptyState
 from app.ui.widgets.voice_library import VoiceLibraryWidget
 
@@ -59,12 +60,16 @@ class ChannelsPage(QWidget):
         create_button.setObjectName("PrimaryButton")
         create_button.clicked.connect(self._create_channel)
 
+        ai_create_button = QPushButton("AI Channel Creator")
+        ai_create_button.clicked.connect(self._open_ai_channel_creator)
+
         refresh_button = QPushButton("Refresh")
         refresh_button.clicked.connect(self.refresh)
 
         create_row = QHBoxLayout()
         create_row.addWidget(self._name_input, stretch=1)
         create_row.addWidget(create_button)
+        create_row.addWidget(ai_create_button)
         create_row.addWidget(refresh_button)
 
         self._voice_title = QLabel("Channel Narrator")
@@ -245,6 +250,21 @@ class ChannelsPage(QWidget):
         self._name_input.clear()
         self.refresh()
         app.show_notification("Channel Created", channel.name)
+
+    def _open_ai_channel_creator(self) -> None:
+        app = self._app()
+        if app is None:
+            return
+        if not is_project_root_configured(app.config.project_root):
+            QMessageBox.warning(
+                self,
+                "AI Channel Creator",
+                "Set Project Root in Settings before creating a channel.",
+            )
+            return
+        dialog = AIChannelCreatorDialog(self)
+        if dialog.exec():
+            self.refresh()
 
     def _on_selection_changed(self) -> None:
         app = self._app()
