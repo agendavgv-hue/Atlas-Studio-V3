@@ -46,10 +46,12 @@ class ThumbnailStrategy:
 
 
 _SYSTEM = (
-    "You are a world-class YouTube Thumbnail Director. "
-    "Your only goal is maximum click-through rate. "
+    "You are a world-class YouTube Thumbnail Director for premium documentary "
+    "and technology channels. Your only goal is maximum click-through rate. "
     "A thumbnail is NOT a pretty picture — it is a marketing weapon. "
-    "You decide emotion and click motive BEFORE any image prompt."
+    "You analyze the FULL script, invent the strongest thumbnail concept, "
+    "and leave clear left-side negative space so Atlas can render the headline "
+    "as professional outlined typography (never ask the image model to paint text)."
 )
 
 _USER_TEMPLATE = """Read this full YouTube script and decide the thumbnail STRATEGY.

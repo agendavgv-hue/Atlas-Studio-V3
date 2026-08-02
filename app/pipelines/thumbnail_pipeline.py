@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 from app.artifacts import ArtifactKind, ArtifactResolver
 from app.artifacts.documents import read_document_text
@@ -35,6 +36,8 @@ class ThumbnailPipeline(Pipeline):
         style_loader: ChannelStyleLoader | None = None,
         dna_loader: ChannelDNALoader | None = None,
         anti_ai_loader: AntiAiRulesLoader | None = None,
+        data_root: Path | None = None,
+        app_config: AppConfig | None = None,
         on_queue_progress: ProgressCallback | None = None,
     ) -> None:
         super().__init__()
@@ -44,6 +47,8 @@ class ThumbnailPipeline(Pipeline):
         self._style_loader = style_loader
         self._dna_loader = dna_loader
         self._anti_ai_loader = anti_ai_loader
+        self._data_root = data_root
+        self._app_config = app_config
         self._on_queue_progress = on_queue_progress
 
     @property
@@ -68,6 +73,7 @@ class ThumbnailPipeline(Pipeline):
             style_loader=self._style_loader,
             dna_loader=self._dna_loader,
             anti_ai_loader=self._anti_ai_loader,
+            data_root=self._data_root,
             cancel_check=self.is_cancel_requested,
         )
         errors.extend(service.validate_ready(script_text=script_text, images=images))
@@ -87,17 +93,22 @@ class ThumbnailPipeline(Pipeline):
 
     def generate_all(self, context: PipelineContext) -> PipelineResult:
         script_text = self._load_script(context)
+        sheet_text = self._load_sheet(context)
         images = self._load_images(context)
 
         def on_progress(message: str, stage: str) -> None:
             stage_progress = {
                 "started": 0.03,
+                "concepts": 0.05,
+                "concept_chosen": 0.08,
                 "direct": 0.06,
                 "strategy": 0.09,
                 "analyze": 0.12,
                 "hero": 0.15,
                 "hook": 0.18,
-                "dna": 0.21,
+                "dna": 0.20,
+                "thumb_dna": 0.22,
+                "consistency": 0.28,
                 "style": 0.24,
                 "composition": 0.27,
                 "prompts": 0.30,
@@ -133,6 +144,8 @@ class ThumbnailPipeline(Pipeline):
             style_loader=self._style_loader,
             dna_loader=self._dna_loader,
             anti_ai_loader=self._anti_ai_loader,
+            data_root=self._data_root,
+            app_config=self._app_config,
             on_progress=on_progress,
             cancel_check=self.is_cancel_requested,
         )
@@ -143,6 +156,7 @@ class ThumbnailPipeline(Pipeline):
         return service.create_thumbnail(
             context,
             script_text=script_text,
+            sheet_text=sheet_text,
             images=images,
         )
 
@@ -153,6 +167,16 @@ class ThumbnailPipeline(Pipeline):
             return ""
         try:
             return read_document_text(script).strip()
+        except OSError:
+            return ""
+
+    @staticmethod
+    def _load_sheet(context: PipelineContext) -> str:
+        sheet = ArtifactResolver(context.project_dir).find(ArtifactKind.PRODUCTION_SHEET)
+        if sheet is None:
+            return ""
+        try:
+            return read_document_text(sheet).strip()
         except OSError:
             return ""
 

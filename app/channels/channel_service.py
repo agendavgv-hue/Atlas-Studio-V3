@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from app.brain.service import ChannelBrainService
 from app.channels.channel_discovery import discover_channel_folder_names
 from app.channels.channel_paths import ChannelPaths
 from app.channels.channel_profile_store import ChannelProfilePackStore
@@ -15,6 +16,7 @@ from app.channels.reference_channels import (
     assert_not_reference_channel,
     is_reference_channel,
 )
+from app.channels.studio.service import ChannelStudioService
 from app.core.app_config import AppConfig
 from app.core.project_root import (
     ProjectRootError,
@@ -22,6 +24,9 @@ from app.core.project_root import (
     require_project_root,
 )
 from app.core.storage import Storage
+from app.creative.services.director_service import CreativeDirectorService
+from app.services.thumbnail_dna_service import ThumbnailDNAService
+from app.thumbnail.dna_loader import ChannelDNALoader
 
 # Forbidden characters for folder/channel names (platform-safe subset).
 _INVALID_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -89,7 +94,11 @@ class ChannelService:
 
         channel = Channel.create_default(folder_name)
         store.save(channel)
-        return store.ensure_default(folder_name)
+        created = store.ensure_default(folder_name)
+        self._ensure_channel_brain(created)
+        self._ensure_creative_director(created)
+        self._ensure_channel_studio(created)
+        return created
 
     def create_channel_from_profile(self, profile: GeneratedChannelProfile) -> Channel:
         """Create a NEW channel from AI Channel Creator DNA.
@@ -126,7 +135,11 @@ class ChannelService:
         if profile.style:
             packs.upsert_style(folder_name, profile.style)
 
-        return store.ensure_default(folder_name)
+        created = store.ensure_default(folder_name)
+        self._ensure_channel_brain(created)
+        self._ensure_creative_director(created)
+        self._ensure_channel_studio(created)
+        return created
 
     def select_channel(self, name: str) -> Channel:
         channel = self.get_channel(name)
@@ -151,7 +164,58 @@ class ChannelService:
             if not (channel.outro_line or "").strip():
                 channel.outro_line = existing.outro_line
         store.save(channel)
+        self._ensure_channel_brain(channel)
+        self._ensure_creative_director(channel)
+        self._ensure_channel_studio(channel)
         return channel
+
+    def _ensure_channel_brain(self, channel: Channel) -> None:
+        """Create Channel Brain pack if missing (never fails channel create)."""
+        try:
+            brains = ChannelBrainService(self._config.data_root)
+            learned = ThumbnailDNAService(self._config.data_root).get_thumbnail_dna(
+                channel.folder_name
+            )
+            pack = None
+            try:
+                pack = ChannelDNALoader(data_root=self._config.data_root).get_dna(
+                    channel.folder_name
+                )
+            except Exception:  # noqa: BLE001
+                pack = None
+            brains.ensure_brain(
+                channel.folder_name,
+                source=channel,
+                learned_thumbnail=learned,
+                channel_pack=pack,
+            )
+        except Exception:  # noqa: BLE001
+            return
+
+    def _ensure_creative_director(self, channel: Channel) -> None:
+        """Create Creative Director pack if missing (never fails channel create)."""
+        try:
+            brains = ChannelBrainService(self._config.data_root)
+            brain = None
+            if brains.exists(channel.folder_name):
+                brain = brains.load(channel.folder_name)
+            CreativeDirectorService(self._config.data_root).ensure(
+                channel.folder_name,
+                source=channel,
+                brain=brain,
+            )
+        except Exception:  # noqa: BLE001
+            return
+
+    def _ensure_channel_studio(self, channel: Channel) -> None:
+        """Create Channel Studio pack if missing (never fails channel create)."""
+        try:
+            ChannelStudioService(self._config.data_root).ensure(
+                channel.folder_name,
+                channel=channel,
+            )
+        except Exception:  # noqa: BLE001
+            return
 
     def _validate_name(self, name: str) -> str:
         cleaned = name.strip()

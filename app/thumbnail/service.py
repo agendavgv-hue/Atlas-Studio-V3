@@ -1,12 +1,11 @@
-"""ThumbnailService — Intelligent Thumbnail Engine orchestrator.
+"""ThumbnailService — Thumbnail Pipeline V3 orchestrator.
 
 Flow:
-  Script → Director → Analyze → Composition → Channel Style + DNA →
-  Build prompts → Critique → Generate 4 variants → Critic select →
-  Quality Assurance (approve ≥ threshold or regenerate, max N attempts) →
-  Export + Memory
+  Creative Director → Thumbnail Planner → Image Prompt Builder →
+  AI Image Generator → Brand Composer → Reference Compare →
+  Thumbnail Critic (≥90 or retry) → Export + thumbnail_debug.json
 
-Completely separate from the video Image Generator (no sheet/title prompts).
+Select mode remains a simple middle-image copy path.
 """
 
 from __future__ import annotations
@@ -26,6 +25,7 @@ from app.providers.image_base import ImageProvider
 from app.thumbnail.analyzer import ThumbnailAnalysis, ThumbnailAnalyzer
 from app.thumbnail.anti_ai import AntiAiRules, AntiAiRulesLoader
 from app.thumbnail.composition import CompositionPlan, CompositionPlanner
+from app.thumbnail.concept_planner import ConceptPlan, ThumbnailConceptPlanner
 from app.thumbnail.critic import (
     PrimaryVariantCritic,
     ThumbnailCandidate,
@@ -50,6 +50,7 @@ from app.thumbnail.memory import (
 from app.thumbnail.modes import ThumbnailMode
 from app.thumbnail.naming import (
     THUMBNAIL_BASENAME,
+    THUMBNAIL_CONCEPTS_BASENAME,
     THUMBNAIL_CRITIQUE_BASENAME,
     THUMBNAIL_FOLDER,
     THUMBNAIL_HISTORY_BASENAME,
@@ -60,13 +61,20 @@ from app.thumbnail.naming import (
     THUMBNAIL_STRATEGY_BASENAME,
     THUMBNAIL_TITLE_BASENAME,
     VARIANT_BASENAMES,
+    thumbnail_concepts_path,
     thumbnail_history_path,
     thumbnail_manifest_path,
     thumbnail_memory_path,
     thumbnail_prompt_quality_path,
     thumbnail_quality_path,
 )
+from app.models.thumbnail_dna import ThumbnailDNA
+from app.services.thumbnail_dna_service import ThumbnailDNAService
 from app.thumbnail.prompt_builder import ThumbnailPromptBuilder, ThumbnailPromptPlan
+from app.thumbnail.intelligence.context import load_intelligence_context
+from app.thumbnail.intelligence.planner import ThumbnailPlanner
+from app.thumbnail.intelligence.prompt_builder import ThumbnailIntelligencePromptBuilder
+from app.thumbnail.intelligence.consistency import score_thumbnail_consistency
 from app.thumbnail.prompt_intelligence import ModelProfileLoader, write_prompt_quality_report
 from app.thumbnail.quality import (
     QualityEvaluationContext,
@@ -126,6 +134,10 @@ class ThumbnailService:
         generator: ThumbnailGenerator | None = None,
         exporter: ThumbnailExporter | None = None,
         memory_store: ThumbnailMemoryStore | None = None,
+        dna_service: ThumbnailDNAService | None = None,
+        data_root: Path | None = None,
+        app_config=None,
+        concept_planner: ThumbnailConceptPlanner | None = None,
         on_progress: ProgressCallback | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> None:
@@ -152,6 +164,10 @@ class ThumbnailService:
         self._generator = generator or ThumbnailGenerator(image_provider)
         self._exporter = exporter or ThumbnailExporter()
         self._memory_store = memory_store or ThumbnailMemoryStore()
+        self._dna_service = dna_service
+        self._data_root = Path(data_root) if data_root is not None else None
+        self._app_config = app_config
+        self._concept_planner = concept_planner
         self._on_progress = on_progress
         self._cancel_check = cancel_check
         self._last_manifest: ThumbnailManifest | None = None
@@ -159,6 +175,10 @@ class ThumbnailService:
         self._last_analysis: ThumbnailAnalysis | None = None
         self._last_composition: CompositionPlan | None = None
         self._last_dna: ChannelDNA | None = None
+        self._last_thumbnail_dna: ThumbnailDNA | None = None
+        self._last_concepts: ConceptPlan | None = None
+        self._last_intelligence = None
+        self._last_consistency = None
         self._last_critiques: list[PromptCritique] | None = None
         self._last_critic_result: ThumbnailCriticResult | None = None
         self._last_memory: ThumbnailMemoryRecord | None = None
@@ -184,6 +204,14 @@ class ThumbnailService:
     @property
     def last_dna(self) -> ChannelDNA | None:
         return self._last_dna
+
+    @property
+    def last_thumbnail_dna(self) -> ThumbnailDNA | None:
+        return self._last_thumbnail_dna
+
+    @property
+    def last_concepts(self) -> ConceptPlan | None:
+        return self._last_concepts
 
     @property
     def last_critiques(self) -> list[PromptCritique] | None:
@@ -234,6 +262,7 @@ class ThumbnailService:
         *,
         script_text: str,
         images: list[Path] | None = None,
+        sheet_text: str = "",
     ) -> PipelineResult:
         started = time.perf_counter()
         mode = self._resolved_mode()
@@ -245,7 +274,10 @@ class ThumbnailService:
             )
 
         return self._create_intelligent_thumbnail(
-            context, script_text=script_text, started=started
+            context,
+            script_text=script_text,
+            sheet_text=sheet_text,
+            started=started,
         )
 
     def _create_intelligent_thumbnail(
@@ -253,18 +285,204 @@ class ThumbnailService:
         context: PipelineContext,
         *,
         script_text: str,
+        sheet_text: str = "",
         started: float,
     ) -> PipelineResult:
         if self._should_cancel():
             return PipelineResult.cancelled()
 
-        self._emit("Directing thumbnail strategy", "direct")
-        try:
-            strategy = self._get_director().direct(
-                script_text, channel_name=context.channel_name
+        # Thumbnail Pipeline V3 — definitive path when Channel Studio data root exists.
+        if self._data_root is not None:
+            from app.thumbnail.pipeline import ThumbnailPipelineEngine
+            from app.thumbnail.pipeline.critic import DEFAULT_CRITIC_THRESHOLD
+
+            engine = ThumbnailPipelineEngine(
+                self._settings,
+                image_provider=self._image_provider,
+                text_provider=self._text_provider,
+                data_root=self._data_root,
+                on_progress=self._on_progress,
+                should_cancel=self._should_cancel,
+                critic_threshold=max(
+                    DEFAULT_CRITIC_THRESHOLD,
+                    int(getattr(self._settings, "quality_threshold", 0) or 0),
+                )
+                if int(getattr(self._settings, "quality_threshold", 0) or 0) >= 90
+                else DEFAULT_CRITIC_THRESHOLD,
+                app_config=self._app_config,
             )
-        except ProviderError as exc:
-            return self._fail(str(exc), started)
+            result = engine.run(
+                context, script_text=script_text, sheet_text=sheet_text
+            )
+            # Preserve started clock for UI consistency when engine reports 0.
+            if result.execution_time_ms <= 0:
+                result.execution_time_ms = self._elapsed_ms(started)
+            return result
+
+        return self._create_intelligent_thumbnail_legacy(
+            context,
+            script_text=script_text,
+            sheet_text=sheet_text,
+            started=started,
+        )
+
+    def _create_intelligent_thumbnail_legacy(
+        self,
+        context: PipelineContext,
+        *,
+        script_text: str,
+        sheet_text: str = "",
+        started: float,
+    ) -> PipelineResult:
+        if self._should_cancel():
+            return PipelineResult.cancelled()
+
+        # Creative Director Engine — always before prompt construction.
+        director_master = ""
+        thumb_profile = None
+        image_profile = None
+        brief = context.creative_brief
+        if brief is None and self._data_root is not None:
+            try:
+                from app.creative.engine import CreativeDirectorEngine
+
+                engine = CreativeDirectorEngine(self._data_root)
+                brief = engine.build_brief(
+                    context.channel_name,
+                    project=context.project,
+                    script_text=script_text,
+                    sheet_text=sheet_text,
+                )
+                object.__setattr__(context, "creative_brief", brief)
+            except Exception:  # noqa: BLE001
+                brief = None
+        if brief is not None and self._data_root is not None:
+            try:
+                from app.creative.engine import CreativeDirectorEngine
+                from app.creative.engine.style_profile_service import StyleProfileService
+
+                engine = CreativeDirectorEngine(self._data_root)
+                engine.enrich_project(
+                    brief, script_text=script_text, sheet_text=sheet_text
+                )
+                profiles = StyleProfileService(self._data_root)
+                thumb_profile = profiles.ensure_thumbnail_profile(context.channel_name)
+                image_profile = profiles.ensure_image_profile(context.channel_name)
+                director_master = engine.create_thumbnail_prompt(
+                    brief, subject=context.project.idea or context.project.name
+                )
+                if thumb_profile is not None:
+                    director_master = (
+                        director_master + "\n\n" + thumb_profile.prompt_block()
+                    )
+                engine.write_report(
+                    context.project_dir,
+                    brief,
+                    domain="thumbnail",
+                    master_prompt_text=director_master,
+                    thumbnail_profile_loaded=True,
+                    image_profile_loaded=image_profile is not None,
+                    notes=[
+                        "Thumbnail generator used Creative Director as PRIMARY prompt.",
+                        f"Thumbnail refs: {thumb_profile.reference_count if thumb_profile else 0}",
+                        f"Image refs: {image_profile.reference_count if image_profile else 0}",
+                    ],
+                )
+                self._emit(
+                    f"Creative Director · {brief.reference_count} refs · "
+                    f"{len(brief.enabled_rules)} rules · "
+                    f"style profile "
+                    f"{thumb_profile.reference_count if thumb_profile else 0} thumbs · "
+                    f"prompt {len(director_master)} chars",
+                    "creative_director",
+                )
+            except Exception:  # noqa: BLE001
+                director_master = ""
+                thumb_profile = None
+                image_profile = None
+
+        # Channel DNA + Thumbnail Intelligence (Director / Brand / Style / DNA).
+        style = self._style_loader.get_style(context.channel_name)
+        dna = self._dna_loader.get_dna(context.channel_name)
+        anti_ai = self._anti_ai_loader.load()
+        self._last_dna = dna
+        thumb_dna = self._load_thumbnail_dna(context)
+        self._last_thumbnail_dna = thumb_dna
+        intelligence = None
+        if self._data_root is not None:
+            try:
+                intelligence = load_intelligence_context(
+                    self._data_root,
+                    context.channel_name,
+                    text_provider=self._text_provider,
+                )
+                self._last_intelligence = intelligence
+                if intelligence.dna is not None:
+                    thumb_dna = intelligence.dna
+                    self._last_thumbnail_dna = thumb_dna
+            except Exception:  # noqa: BLE001
+                intelligence = None
+
+        self._emit(f"Channel DNA: {dna.display_name}", "dna")
+        if intelligence is not None:
+            self._emit(
+                f"Thumbnail Intelligence · style {intelligence.studio.style_strength:g} · "
+                f"brand {intelligence.studio.brand_strength:g} · "
+                f"{intelligence.reference_count} refs",
+                "thumb_dna",
+            )
+        elif thumb_dna is not None:
+            self._emit(
+                f"Thumbnail DNA loaded ({thumb_dna.reference_count} refs)",
+                "thumb_dna",
+            )
+        else:
+            self._emit("No Thumbnail DNA yet — using channel style defaults", "thumb_dna")
+
+        if self._should_cancel():
+            return PipelineResult.cancelled()
+
+        # Think → choose via ThumbnailPlanner (Creative Director aware).
+        self._emit("Planning thumbnail concepts", "concepts")
+        concept_plan: ConceptPlan | None = None
+        try:
+            if intelligence is not None and self._text_provider is not None:
+                thumb_plan = ThumbnailPlanner(self._text_provider).plan(
+                    script_text=script_text,
+                    sheet_text=sheet_text,
+                    channel_name=context.channel_name,
+                    channel_dna_text=dna.dna_block()
+                    if hasattr(dna, "dna_block")
+                    else dna.signature,
+                    intelligence=intelligence,
+                )
+                concept_plan = thumb_plan.concept_plan
+            else:
+                concept_plan = self._get_concept_planner().plan(
+                    script_text=script_text,
+                    channel_name=context.channel_name,
+                    sheet_text=sheet_text,
+                    channel_dna_text=dna.dna_block()
+                    if hasattr(dna, "dna_block")
+                    else dna.signature,
+                    thumbnail_dna=thumb_dna,
+                )
+            strategy = concept_plan.strategy
+            concept_plan.write_json(thumbnail_concepts_path(context.project_dir))
+            self._last_concepts = concept_plan
+            self._emit(
+                f"Chose concept: {concept_plan.chosen.title}",
+                "concept_chosen",
+            )
+        except (ProviderError, ValueError, OSError, TypeError, KeyError):
+            # Backward-compatible fallback to legacy director.
+            self._emit("Concept planner unavailable — using director", "concepts")
+            try:
+                strategy = self._get_director().direct(
+                    script_text, channel_name=context.channel_name
+                )
+            except ProviderError as exc:
+                return self._fail(str(exc), started)
 
         self._last_strategy = strategy
         self._emit(
@@ -285,6 +503,14 @@ class ThumbnailService:
         except ProviderError as exc:
             return self._fail(str(exc), started)
 
+        # Prefer concept hero when concept planner ran successfully.
+        if concept_plan is not None and strategy.hero_subject:
+            analysis = ThumbnailAnalysis(
+                hero_subject=strategy.hero_subject or analysis.hero_subject,
+                hook=analysis.hook,
+                rationale=concept_plan.chosen_reason or analysis.rationale,
+            )
+
         self._last_analysis = analysis
         self._emit(f"Hero subject: {analysis.hero_subject}", "hero")
 
@@ -292,14 +518,13 @@ class ThumbnailService:
             return PipelineResult.cancelled()
 
         self._emit(f"Hook: {analysis.hook}", "hook")
-        style = self._style_loader.get_style(context.channel_name)
-        dna = self._dna_loader.get_dna(context.channel_name)
-        anti_ai = self._anti_ai_loader.load()
-        self._last_dna = dna
-        self._emit(f"Channel DNA: {dna.display_name}", "dna")
         self._emit(f"Channel style: {style.display_name}", "style")
 
-        composition = self._composition_planner.plan(strategy=strategy, style=style)
+        composition = self._composition_planner.plan(
+            strategy=strategy,
+            style=style,
+            thumbnail_dna=thumb_dna,
+        )
         self._last_composition = composition
         self._emit("Composition planned", "composition")
 
@@ -312,6 +537,86 @@ class ThumbnailService:
             anti_ai=anti_ai,
             model_name=str(getattr(self._settings, "model", "") or ""),
         )
+        # Creative Director PRIMARY prompt — Channel Studio identity leads.
+        if brief is not None and director_master:
+            try:
+                from app.thumbnail.director_prompt import build_director_led_thumbnail_plans
+
+                plans = build_director_led_thumbnail_plans(
+                    brief,
+                    hero_subject=analysis.hero_subject,
+                    hook=analysis.hook,
+                    emotion=strategy.emotion,
+                    thumbnail_profile=thumb_profile,
+                    image_profile=image_profile,
+                )
+                self._emit("Director-led thumbnail prompts active", "prompts")
+            except Exception:  # noqa: BLE001
+                # Fall back to appending director_master onto Prompt Intelligence plans.
+                plans = [
+                    ThumbnailPromptPlan(
+                        variant_id=p.variant_id,
+                        variant_key=p.variant_key,
+                        variant_label=p.variant_label,
+                        prompt=f"{director_master}\n\nSCENE DELTA: {p.prompt}",
+                        negative_prompt=p.negative_prompt,
+                        blocks=p.blocks,
+                        prompt_quality=p.prompt_quality,
+                        model_profile=p.model_profile,
+                    )
+                    for p in plans
+                ]
+        else:
+            intel_block = director_master
+            if not intel_block and intelligence is not None and concept_plan is not None:
+                try:
+                    from app.thumbnail.intelligence.planner import ThumbnailPlan as _TP
+
+                    built_intel = ThumbnailIntelligencePromptBuilder().build(
+                        plan=_TP(
+                            concept_plan=concept_plan,
+                            intelligence_brief=intelligence.identity_brief(),
+                            selected_scene=concept_plan.selected_scene,
+                            chosen_title=concept_plan.chosen.title,
+                        ),
+                        intelligence=intelligence,
+                        hero_subject=analysis.hero_subject,
+                        hook=analysis.hook,
+                    )
+                    intel_block = built_intel.style_block
+                    consistency = score_thumbnail_consistency(
+                        intelligence,
+                        prompt=built_intel.prompt,
+                        hook=analysis.hook,
+                    )
+                    self._last_consistency = consistency
+                    self._emit(
+                        f"Consistency {consistency.overall:.0f}% "
+                        f"(brand {consistency.brand:.0f} · style {consistency.style:.0f} · "
+                        f"layout {consistency.layout:.0f} · identity {consistency.identity:.0f})",
+                        "consistency",
+                    )
+                except Exception:  # noqa: BLE001
+                    intel_block = intelligence.identity_brief()
+            elif not intel_block and intelligence is not None:
+                intel_block = intelligence.identity_brief()
+            elif not intel_block and thumb_dna is not None:
+                intel_block = thumb_dna.prompt_block()
+
+            if intel_block:
+                plans = [
+                    ThumbnailPromptPlan(
+                        variant_id=p.variant_id,
+                        variant_key=p.variant_key,
+                        variant_label=p.variant_label,
+                        prompt=f"{p.prompt}, {intel_block}",
+                        negative_prompt=p.negative_prompt,
+                        blocks=p.blocks,
+                        prompt_quality=p.prompt_quality,
+                        model_profile=p.model_profile,
+                    )
+                    for p in plans
+                ]
         self._emit("Thumbnail prompts ready", "prompts")
 
         prompt_quality_path = thumbnail_prompt_quality_path(context.project_dir)
@@ -466,6 +771,60 @@ class ThumbnailService:
 
         self._emit("Exporting thumbnail package", "export")
         try:
+            logo_path = None
+            frame_path = None
+            logo_placement = None
+            fill_hex = ""
+            outline_hex = ""
+            font_family = ""
+            max_words = 4
+            align_left: bool | None = True
+            if brief is not None and self._data_root is not None:
+                from app.channels.studio.service import ChannelStudioService
+                from app.thumbnail.intelligence.branding import ThumbnailBrandingService
+                from app.thumbnail.intelligence.settings import ThumbnailStudioSettings
+
+                studio = ChannelStudioService(self._data_root)
+                logo_rel = brief.brand.thumbnail_logo or brief.brand.logo
+                logo_path = studio.resolve_asset(context.channel_name, logo_rel)
+                frame_rel = (
+                    brief.brand.thumbnail_frame
+                    or str((brief.brand.extras or {}).get("thumbnail_frame") or "")
+                ).strip()
+                frame_path = (
+                    studio.resolve_asset(context.channel_name, frame_rel)
+                    if frame_rel
+                    else None
+                )
+                settings = ThumbnailStudioSettings(
+                    max_words=int(brief.thumbnail.max_words or 4),
+                    logo_visible=bool(brief.thumbnail.logo_visible),
+                    logo_position=(
+                        (thumb_profile.logo_bias if thumb_profile and brief.thumbnail.logo_position == "auto" else None)
+                        or str(brief.thumbnail.logo_position or "auto")
+                    ),
+                    logo_size=float(brief.thumbnail.logo_size or 0.12),
+                    contrast=str(brief.thumbnail.contrast or "very_high"),
+                    negative_space=str(brief.thumbnail.negative_space or "left"),
+                    creativity=float(brief.thumbnail.creativity or 60),
+                    style_strength=float(brief.thumbnail.style_strength or 80),
+                    brand_strength=float(brief.thumbnail.brand_strength or 85),
+                )
+                logo_placement = ThumbnailBrandingService().resolve_logo_placement(
+                    settings=settings,
+                    dna=thumb_dna,
+                    subject_position=(
+                        thumb_profile.subject_bias if thumb_profile else ""
+                    ),
+                )
+                fill_hex = brief.brand.primary_color or ""
+                outline_hex = brief.brand.secondary_color or "#1A1208"
+                if brief.brand.fonts:
+                    font_family = brief.brand.fonts[0]
+                max_words = int(brief.thumbnail.max_words or 4)
+                if thumb_profile is not None:
+                    align_left = thumb_profile.text_position != "right"
+
             exported = self._exporter.export_package(
                 context.project_dir,
                 hook=analysis.hook,
@@ -474,6 +833,15 @@ class ThumbnailService:
                 strategy=strategy,
                 primary_prompt=primary_prompt,
                 critique_reports=[item.to_dict() for item in critiques],
+                channel_name=context.channel_name,
+                logo_path=logo_path,
+                frame_path=frame_path,
+                logo_placement=logo_placement,
+                text_fill_hex=fill_hex,
+                text_outline_hex=outline_hex,
+                font_family=font_family,
+                max_words=max_words,
+                text_align_left=align_left,
             )
         except (ValueError, OSError) as exc:
             return self._fail(f"Thumbnail export failed: {exc}", started)
@@ -568,6 +936,7 @@ class ThumbnailService:
 
         artifacts = [
             f"{THUMBNAIL_FOLDER}/{THUMBNAIL_STRATEGY_BASENAME}",
+            f"{THUMBNAIL_FOLDER}/{THUMBNAIL_CONCEPTS_BASENAME}",
             f"{THUMBNAIL_FOLDER}/{THUMBNAIL_PROMPT_BASENAME}",
             f"{THUMBNAIL_FOLDER}/{THUMBNAIL_PROMPT_QUALITY_BASENAME}",
             f"{THUMBNAIL_FOLDER}/{THUMBNAIL_TITLE_BASENAME}",
@@ -869,6 +1238,24 @@ class ThumbnailService:
         }:
             return ThumbnailMode.INTELLIGENT
         return ThumbnailMode.INTELLIGENT
+
+    def _load_thumbnail_dna(self, context: PipelineContext) -> ThumbnailDNA | None:
+        service = self._dna_service
+        if service is None and self._data_root is not None:
+            service = ThumbnailDNAService(self._data_root)
+        if service is None:
+            return None
+        try:
+            return service.get_thumbnail_dna(context.channel_name)
+        except (OSError, ValueError):
+            return None
+
+    def _get_concept_planner(self) -> ThumbnailConceptPlanner:
+        if self._concept_planner is not None:
+            return self._concept_planner
+        if self._text_provider is None:
+            raise ProviderError("No text provider is configured for thumbnail concepts.")
+        return ThumbnailConceptPlanner(self._text_provider)
 
     def _get_director(self) -> ThumbnailDirector:
         if self._director is not None:

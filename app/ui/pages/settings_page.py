@@ -41,6 +41,7 @@ from app.providers.kokoro import (
 from app.providers.local_voice import LOCAL_VOICE_PROVIDER_ID
 from app.render.ffmpeg import FFmpegProcess
 from app.ui.dialogs.about_dialog import AboutDialog
+from app.ui.settings.cards.thumbnail_studio_card import ThumbnailStudioCard
 from app.ui.voice_health_display import (
     VoiceHealthDisplay,
     display_from_kokoro_health,
@@ -62,7 +63,7 @@ class SettingsPage(QWidget):
         title.setObjectName("PageTitle")
 
         subtitle = QLabel(
-            "Configure library location, AI text, image, voice, and movie providers."
+            "Configure library location, AI text, image, voice, movie, and thumbnail style."
         )
         subtitle.setObjectName("PageSubtitle")
 
@@ -313,6 +314,8 @@ class SettingsPage(QWidget):
         movie_actions.addWidget(save_movie)
         movie_actions.addStretch()
 
+        self._thumbnail_style = ThumbnailStudioCard()
+
         about_button = QPushButton("About Atlas Studio")
         about_button.clicked.connect(self.open_about)
 
@@ -320,6 +323,7 @@ class SettingsPage(QWidget):
         self._status.setObjectName("PageSubtitle")
         self._status.setWordWrap(True)
         self._voice_library.status_message.connect(self._status.setText)
+        self._thumbnail_style.status_message.connect(self._status.setText)
 
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -358,6 +362,8 @@ class SettingsPage(QWidget):
         layout.addWidget(movie_label)
         layout.addLayout(movie_form)
         layout.addLayout(movie_actions)
+        layout.addSpacing(20)
+        layout.addWidget(self._thumbnail_style)
         layout.addSpacing(24)
         layout.addWidget(about_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._status)
@@ -375,6 +381,7 @@ class SettingsPage(QWidget):
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         self._load_current()
+        self._thumbnail_style.refresh()
 
     def open_about(self) -> None:
         AboutDialog(self).exec()

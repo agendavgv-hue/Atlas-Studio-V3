@@ -1,4 +1,4 @@
-"""Project workspace — production cards, progress, Generate Production / Images / Voice / Movie / Thumbnail."""
+"""Project workspace — production cards, one-click GENERATE EVERYTHING, progress."""
 
 from __future__ import annotations
 
@@ -65,6 +65,21 @@ class ProjectWorkspacePage(QWidget):
         self._meta = QLabel("")
         self._meta.setObjectName("PageSubtitle")
 
+        self._generate_everything = QPushButton("GENERATE EVERYTHING")
+        self._generate_everything.setObjectName("PrimaryButton")
+        self._generate_everything.setMinimumHeight(48)
+        self._generate_everything.clicked.connect(self._start_generate_everything)
+
+        self._cancel_production = QPushButton("Cancel")
+        self._cancel_production.setObjectName("SecondaryButton")
+        self._cancel_production.setEnabled(False)
+        self._cancel_production.clicked.connect(self._cancel_generate_everything)
+
+        one_click_row = QHBoxLayout()
+        one_click_row.setSpacing(10)
+        one_click_row.addWidget(self._generate_everything, stretch=1)
+        one_click_row.addWidget(self._cancel_production)
+
         # --- Production card ---
         self._generate = QPushButton("Generate Production")
         self._generate.setObjectName("PrimaryButton")
@@ -78,20 +93,20 @@ class ProjectWorkspacePage(QWidget):
             lambda: self._open_artifact(ArtifactKind.PRODUCTION_SHEET)
         )
 
-        regen_script = QPushButton("Regenerate Script")
-        regen_script.setObjectName("SecondaryButton")
-        regen_script.clicked.connect(self._regenerate_script)
+        self._regen_script = QPushButton("Regenerate Script")
+        self._regen_script.setObjectName("SecondaryButton")
+        self._regen_script.clicked.connect(self._regenerate_script)
 
-        regen_sheet = QPushButton("Regenerate Production Sheet")
-        regen_sheet.setObjectName("SecondaryButton")
-        regen_sheet.clicked.connect(self._regenerate_sheet)
+        self._regen_sheet = QPushButton("Regenerate Production Sheet")
+        self._regen_sheet.setObjectName("SecondaryButton")
+        self._regen_sheet.clicked.connect(self._regenerate_sheet)
 
         production_card = self._make_card("Script & Sheet")
         production_body = production_card.layout()
         assert isinstance(production_body, QVBoxLayout)
         production_body.addWidget(self._generate)
         production_body.addLayout(self._button_row(open_script, open_sheet))
-        production_body.addLayout(self._button_row(regen_script, regen_sheet))
+        production_body.addLayout(self._button_row(self._regen_script, self._regen_sheet))
 
         # --- Images card ---
         self._generate_images = QPushButton("Generate Images")
@@ -237,6 +252,8 @@ class ProjectWorkspacePage(QWidget):
         layout.addWidget(self._title)
         layout.addWidget(self._meta)
         layout.addSpacing(8)
+        layout.addLayout(one_click_row)
+        layout.addSpacing(6)
         layout.addWidget(self._cards_host)
         layout.addWidget(self._queue)
         layout.addWidget(self._result)
@@ -318,6 +335,65 @@ class ProjectWorkspacePage(QWidget):
         app.tasks.thumbnail_progress.connect(self._on_thumbnail_progress)
         app.tasks.thumbnail_finished.connect(self._on_thumbnail_finished)
         app.tasks.thumbnail_running_changed.connect(self._sync_job_buttons)
+        app.generation.running_changed.connect(self._sync_job_buttons)
+        app.generation.log_line.connect(self._on_generation_log)
+        app.generation.finished.connect(self._on_generation_finished)
+
+    def _start_generate_everything(self) -> None:
+        app = self._app()
+        if app is None or not self._channel_name or not self._project_folder:
+            return
+        if app.generation.is_running or app.tasks.is_busy:
+            self._result.setText("A production job is already running.")
+            return
+        try:
+            context = self._context()
+        except Exception as exc:  # noqa: BLE001
+            self._result.setText(str(exc))
+            return
+
+        started = app.generation.start(
+            app.production,
+            context,
+            channel_name=self._channel_name,
+            project_folder=self._project_folder,
+        )
+        if not started:
+            self._result.setText("Could not start one-click production.")
+            return
+        self._voice_player.stop()
+        self._queue.setText("One-click production started…")
+        self._result.setText("Running full production workflow…")
+        self._sync_job_buttons()
+
+    def _cancel_generate_everything(self) -> None:
+        app = self._app()
+        if app is None:
+            return
+        if app.generation.is_running and self._is_generation_for_project():
+            app.generation.cancel()
+            self._queue.setText("Cancelling after current task…")
+            self._sync_job_buttons()
+
+    def _on_generation_log(self, line: str) -> None:
+        if not self._is_generation_for_project():
+            return
+        self._queue.setText(line)
+
+    def _on_generation_finished(self, result) -> None:
+        if self._channel_name and self._project_folder:
+            self.refresh()
+        if not self.isVisible():
+            self._sync_job_buttons()
+            return
+        self._show_result(result)
+        self._sync_job_buttons()
+
+    def _is_generation_for_project(self) -> bool:
+        app = self._app()
+        if app is None or not self._channel_name or not self._project_folder:
+            return False
+        return app.generation.is_job_for(self._channel_name, self._project_folder)
 
     def load_project(self, channel_name: str, project_folder: str) -> None:
         self._voice_player.stop()
@@ -459,7 +535,7 @@ class ProjectWorkspacePage(QWidget):
         self._sync_job_buttons()
 
     def _on_image_progress(self, progress: ImageQueueProgress) -> None:
-        if not self._is_active_job():
+        if self._is_generation_for_project() or not self._is_active_job():
             return
         elapsed = int(progress.elapsed_seconds)
         minutes, seconds = divmod(elapsed, 60)
@@ -473,6 +549,8 @@ class ProjectWorkspacePage(QWidget):
         self._queue.setText("  ·  ".join(parts))
 
     def _on_image_finished(self, result) -> None:
+        if self._is_generation_for_project():
+            return
         if self._channel_name and self._project_folder:
             self.refresh()
         if not self.isVisible():
@@ -535,7 +613,7 @@ class ProjectWorkspacePage(QWidget):
         self._sync_job_buttons()
 
     def _on_voice_progress(self, progress: VoiceQueueProgress) -> None:
-        if not self._is_active_job():
+        if self._is_generation_for_project() or not self._is_active_job():
             return
         elapsed = int(progress.elapsed_seconds)
         minutes, seconds = divmod(elapsed, 60)
@@ -546,6 +624,8 @@ class ProjectWorkspacePage(QWidget):
         self._queue.setText("  ·  ".join(parts))
 
     def _on_voice_finished(self, result) -> None:
+        if self._is_generation_for_project():
+            return
         if self._channel_name and self._project_folder:
             self.refresh()
         if not self.isVisible():
@@ -602,7 +682,7 @@ class ProjectWorkspacePage(QWidget):
         self._sync_job_buttons()
 
     def _on_movie_progress(self, progress: MovieQueueProgress) -> None:
-        if not self._is_active_job():
+        if self._is_generation_for_project() or not self._is_active_job():
             return
         elapsed = int(progress.elapsed_seconds)
         minutes, seconds = divmod(elapsed, 60)
@@ -619,6 +699,8 @@ class ProjectWorkspacePage(QWidget):
         self._queue.setText("  ·  ".join(parts))
 
     def _on_movie_finished(self, result) -> None:
+        if self._is_generation_for_project():
+            return
         if self._channel_name and self._project_folder:
             self.refresh()
         if not self.isVisible():
@@ -677,7 +759,7 @@ class ProjectWorkspacePage(QWidget):
         self._sync_job_buttons()
 
     def _on_thumbnail_progress(self, progress: ThumbnailQueueProgress) -> None:
-        if not self._is_active_job():
+        if self._is_generation_for_project() or not self._is_active_job():
             return
         elapsed = int(progress.elapsed_seconds)
         minutes, seconds = divmod(elapsed, 60)
@@ -687,6 +769,8 @@ class ProjectWorkspacePage(QWidget):
         self._queue.setText("  ·  ".join(parts))
 
     def _on_thumbnail_finished(self, result) -> None:
+        if self._is_generation_for_project():
+            return
         if self._channel_name and self._project_folder:
             self.refresh()
         if not self.isVisible():
@@ -703,12 +787,40 @@ class ProjectWorkspacePage(QWidget):
 
     def _sync_job_buttons(self, *_args) -> None:
         app = self._app()
-        busy = bool(app and app.tasks.is_busy)
+        one_click = bool(
+            app
+            and app.generation.is_running
+            and self._is_generation_for_project()
+        )
+        busy = bool(app and (app.tasks.is_busy or app.generation.is_running))
         mine = self._is_active_job()
-        images_mine = bool(app and app.tasks.is_images_running and mine)
-        voice_mine = bool(app and app.tasks.is_voice_running and mine)
-        movie_mine = bool(app and app.tasks.is_movie_running and mine)
-        thumbnail_mine = bool(app and app.tasks.is_thumbnail_running and mine)
+        images_mine = bool(app and app.tasks.is_images_running and mine and not one_click)
+        voice_mine = bool(app and app.tasks.is_voice_running and mine and not one_click)
+        movie_mine = bool(app and app.tasks.is_movie_running and mine and not one_click)
+        thumbnail_mine = bool(
+            app and app.tasks.is_thumbnail_running and mine and not one_click
+        )
+
+        self._generate_everything.setEnabled(not busy)
+        self._cancel_production.setEnabled(one_click)
+
+        if one_click:
+            self._generate.setEnabled(False)
+            self._regen_script.setEnabled(False)
+            self._regen_sheet.setEnabled(False)
+            self._generate_images.setText("Generate Images")
+            self._generate_images.setEnabled(False)
+            self._regen_images.setEnabled(False)
+            self._generate_voice.setText("Generate Voice")
+            self._generate_voice.setEnabled(False)
+            self._regen_voice.setEnabled(False)
+            self._generate_movie.setText("Generate Movie")
+            self._generate_movie.setEnabled(False)
+            self._regen_movie.setEnabled(False)
+            self._generate_thumbnail.setText("Generate Thumbnail")
+            self._generate_thumbnail.setEnabled(False)
+            self._regen_thumbnail.setEnabled(False)
+            return
 
         if images_mine:
             self._generate_images.setText("Stop")
@@ -747,6 +859,8 @@ class ProjectWorkspacePage(QWidget):
             self._regen_thumbnail.setEnabled(not busy)
 
         self._generate.setEnabled(not busy)
+        self._regen_script.setEnabled(not busy)
+        self._regen_sheet.setEnabled(not busy)
 
     def _refresh_voice_panel(self) -> None:
         path = self._resolve_voice_path()

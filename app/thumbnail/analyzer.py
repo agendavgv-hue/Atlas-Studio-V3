@@ -20,8 +20,11 @@ class ThumbnailAnalysis:
 
 
 _SYSTEM = (
-    "You are a senior YouTube thumbnail copy and subject specialist. "
-    "You maximize curiosity and clicks. You never write video titles."
+    "You are a senior YouTube thumbnail copy and subject specialist for premium "
+    "documentary and technology channels. You maximize curiosity and clicks. "
+    "You never write video titles. Hooks must be 2–5 words, ALL CAPS, punchy, "
+    "and designed for Atlas to render as large outlined headline text — not for "
+    "the image model to paint."
 )
 
 _USER_TEMPLATE = """Using this thumbnail STRATEGY and the script, finalize hero + hook.

@@ -19,7 +19,11 @@ class Sidebar(QFrame):
     NAV_ITEMS = (
         ("dashboard", "Dashboard"),
         ("channels", "Channels"),
+        ("channel_studio", "Channel Studio"),
         ("projects", "Projects"),
+        ("thumbnail_review", "Thumbnail Review"),
+        ("design_review", "Design Review"),
+        ("ai_providers", "AI Providers"),
         ("settings", "Settings"),
     )
 

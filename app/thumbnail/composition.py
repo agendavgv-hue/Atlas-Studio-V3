@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from app.models.thumbnail_dna import ThumbnailDNA
 from app.thumbnail.style_loader import ChannelThumbnailStyle
 from app.thumbnail.thumbnail_director import ThumbnailStrategy
 
@@ -67,28 +68,56 @@ class CompositionPlanner:
         *,
         strategy: ThumbnailStrategy,
         style: ChannelThumbnailStyle,
+        thumbnail_dna: ThumbnailDNA | None = None,
     ) -> CompositionPlan:
         emotion = (strategy.emotion or "").strip()
+        title_side = (style.headline_position or "left").strip() or "left"
+        hero_pos = style.composition or (
+            "hero on the right third, facing into open left space"
+        )
+        light = style.lighting
+        contrast = style.contrast
+        hero_scale = style.hero_scale or (
+            f"hero fills about {int(HERO_SHARE * 100)}% of the frame"
+        )
+        focus = "single sharp hero subject, everything else simpler and darker"
+
+        if thumbnail_dna is not None:
+            title_side = thumbnail_dna.layout.title_position or title_side
+            subject = thumbnail_dna.layout.subject_position or "right"
+            hero_pos = (
+                f"hero subject on the {subject}, open {title_side} for headline"
+            )
+            light = thumbnail_dna.style.lighting or light
+            contrast = thumbnail_dna.style.contrast or contrast
+            scale = thumbnail_dna.composition.subject_scale or "large"
+            hero_scale = f"hero subject scale {scale} (~{int(HERO_SHARE * 100)}% of frame)"
+            focus = (
+                f"{thumbnail_dna.composition.focus or 'hero'} focus, "
+                f"gaze {thumbnail_dna.composition.gaze_direction or 'into_frame'}"
+            )
+            neg_side = thumbnail_dna.layout.negative_space or title_side
+        else:
+            neg_side = title_side
+
         return CompositionPlan(
-            hero_position=style.composition or (
-                "hero on the right third, facing into open left space"
-            ),
-            light_source=style.lighting,
+            hero_position=hero_pos,
+            light_source=light,
             camera_angle=style.camera,
             background=style.background_style,
             negative_space=(
                 f"clean {int(NEGATIVE_SPACE_SHARE * 100)}% negative space on the "
-                f"{style.headline_position or 'left'} for the headline; never busy"
+                f"{neg_side} for the headline; never busy"
             ),
-            focus="single sharp hero subject, everything else simpler and darker",
-            hero_scale=style.hero_scale or (
-                f"hero fills about {int(HERO_SHARE * 100)}% of the frame"
-            ),
+            focus=focus,
+            hero_scale=hero_scale,
             depth=style.depth,
-            contrast=style.contrast,
+            contrast=contrast,
             texture=style.texture,
-            headline_position=style.headline_position or "left side",
-            emotion_accent=_emotion_accent(emotion),
+            headline_position=title_side,
+            emotion_accent=_emotion_accent(
+                emotion or (thumbnail_dna.style.emotion if thumbnail_dna else "")
+            ),
         )
 
 

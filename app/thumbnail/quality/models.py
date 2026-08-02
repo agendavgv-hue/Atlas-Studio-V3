@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_QUALITY_THRESHOLD = 80
+DEFAULT_QUALITY_THRESHOLD = 90
 DEFAULT_MAX_QUALITY_ATTEMPTS = 3
 
 

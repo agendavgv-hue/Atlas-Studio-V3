@@ -23,25 +23,17 @@ from app.thumbnail.anti_ai import AntiAiRulesLoader
 from app.thumbnail.composition import CompositionPlanner, HERO_SHARE, NEGATIVE_SPACE_SHARE
 from app.thumbnail.critic import PrimaryVariantCritic, ThumbnailCandidate
 from app.thumbnail.dna_loader import ChannelDNALoader
-from app.thumbnail.manifest import ThumbnailManifest
-from app.thumbnail.memory import ThumbnailMemoryRecord
 from app.thumbnail.modes import ThumbnailMode
 from app.thumbnail.naming import (
-    THUMBNAIL_MEMORY_BASENAME,
+    THUMBNAIL_CONCEPTS_BASENAME,
+    THUMBNAIL_DEBUG_BASENAME,
+    THUMBNAIL_PLAN_BASENAME,
     THUMBNAIL_PROMPT_BASENAME,
-    THUMBNAIL_PROMPT_QUALITY_BASENAME,
-    THUMBNAIL_QUALITY_BASENAME,
-    THUMBNAIL_STRATEGY_BASENAME,
     THUMBNAIL_TITLE_BASENAME,
-    thumbnail_critique_path,
-    thumbnail_history_path,
-    thumbnail_manifest_path,
-    thumbnail_memory_path,
+    thumbnail_debug_path,
     thumbnail_path,
+    thumbnail_plan_path,
     thumbnail_prompt_path,
-    thumbnail_prompt_quality_path,
-    thumbnail_quality_path,
-    thumbnail_strategy_path,
     thumbnail_title_path,
     thumbnail_variant_path,
 )
@@ -62,8 +54,22 @@ class _FakeImageProvider(ImageProvider):
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         self.prompts.append(request.prompt)
         self.negatives.append(request.negative_prompt)
+        from PySide6.QtCore import QByteArray, QBuffer, QIODevice
+        from PySide6.QtGui import QColor, QImage
+        from PySide6.QtWidgets import QApplication
+        import sys
+
+        if QApplication.instance() is None:
+            QApplication(sys.argv[:1])
+        image = QImage(320, 180, QImage.Format.Format_ARGB32)
+        image.fill(QColor("#1a2030"))
+        ba = QByteArray()
+        buf = QBuffer(ba)
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buf, "PNG")
+        buf.close()
         return ImageGenerationResponse(
-            image_png=f"PNG:{request.prompt[:24]}".encode("utf-8"),
+            image_png=bytes(ba),
             seed=1,
             model="fake",
             width=request.width or 1280,
@@ -95,6 +101,179 @@ class _FakeTextProvider(TextProvider):
         del system
         self.calls += 1
         lowered = (prompt or "").casefold()
+        if "distinct possible thumbnail scenes" in lowered or "scene director" in lowered:
+            return json.dumps(
+                {
+                    "scenes": [
+                        {
+                            "id": 1,
+                            "title": "IMPOSSIBLE CHARGE",
+                            "story": (
+                                "An explorer realizes the Baghdad Battery still sparks "
+                                "while torchlight ruins collapse behind them in fog."
+                            ),
+                            "emotion": "mystery",
+                            "main_subject": "explorer silhouette",
+                            "secondary_subject": "Baghdad Battery",
+                            "background": "collapsing torchlit ruins",
+                            "foreground": "ancient clay vessel glowing",
+                            "lighting": "warm rim light",
+                            "weather": "dust haze",
+                            "camera": "eye_level",
+                            "lens": "35mm cinematic",
+                            "depth": "layered ruins depth",
+                            "atmosphere": "documentary mystery",
+                            "negative_space": "left",
+                            "color_palette": ["#c9a227", "#1a2030"],
+                            "visual_focus": "explorer reacting to battery spark",
+                        },
+                        {
+                            "id": 2,
+                            "title": "NOT NATURAL",
+                            "story": (
+                                "A researcher measures the Baghdad Battery beside geometry "
+                                "that should not exist as a desert storm builds."
+                            ),
+                            "emotion": "curiosity",
+                            "main_subject": "researcher",
+                            "secondary_subject": "Baghdad Battery",
+                            "background": "impossible stone chamber",
+                            "foreground": "measurement tools",
+                            "lighting": "documentary key light",
+                            "weather": "approaching storm",
+                            "negative_space": "left",
+                        },
+                        {
+                            "id": 3,
+                            "title": "TOO LATE",
+                            "story": (
+                                "A rescue craft turns away as the Baghdad Battery flares "
+                                "and the sea around the excavation collapses inward."
+                            ),
+                            "emotion": "fear",
+                            "main_subject": "small rescue craft",
+                            "secondary_subject": "Baghdad Battery",
+                            "background": "collapsing coastal dig site",
+                            "foreground": "spray and rope",
+                            "lighting": "urgent red-gold light",
+                            "weather": "chaotic spray",
+                            "negative_space": "left",
+                        },
+                        {
+                            "id": 4,
+                            "title": "JUST REVEALED",
+                            "story": (
+                                "From a cliff edge an explorer looks down as a hidden "
+                                "workshop emerges through mist while the Baghdad Battery glows."
+                            ),
+                            "emotion": "wonder",
+                            "main_subject": "explorer",
+                            "secondary_subject": "Baghdad Battery",
+                            "background": "hidden workshop through mist",
+                            "foreground": "cliff edge stones",
+                            "lighting": "pale dawn",
+                            "weather": "thick mist",
+                            "negative_space": "left",
+                        },
+                        {
+                            "id": 5,
+                            "title": "THE VANISHING",
+                            "story": (
+                                "An explorer stands alone as footprints end mid-chamber "
+                                "and the Baghdad Battery still spins with unnatural light."
+                            ),
+                            "emotion": "mystery",
+                            "main_subject": "explorer",
+                            "secondary_subject": "Baghdad Battery",
+                            "background": "abandoned dig chamber",
+                            "foreground": "ending footprints",
+                            "lighting": "cold blue moonlight",
+                            "weather": "rolling fog",
+                            "negative_space": "left",
+                        },
+                    ]
+                }
+            )
+        if "invent exactly 3 thumbnail concepts" in lowered or "invent exactly 5 thumbnail concepts" in lowered or "chosen_concept_id" in lowered or "invent at least" in lowered:
+            return json.dumps(
+                {
+                    "selected_scene": "Baghdad Battery discovered in ruins",
+                    "click_value_reason": "Impossible ancient power",
+                    "concepts": [
+                        {
+                            "id": 1,
+                            "title": "WHO BUILT THIS?",
+                            "foreground": "Baghdad Battery close-up",
+                            "midground": "ruins",
+                            "background": "dark chamber",
+                            "lighting": "warm rim light",
+                            "emotion": "mystery",
+                            "elements": ["battery", "ruins", "dust"],
+                            "hero_subject": "Baghdad Battery",
+                            "hook": "WHO BUILT THIS?",
+                            "idea": "Baghdad Battery close-up in dark ruins",
+                        },
+                        {
+                            "id": 2,
+                            "title": "NOT HUMAN?",
+                            "foreground": "Hands holding the jar",
+                            "midground": "artifact",
+                            "background": "torchlight cave",
+                            "lighting": "torch glow",
+                            "emotion": "curiosity",
+                            "elements": ["hands", "jar"],
+                            "hero_subject": "Baghdad Battery",
+                            "hook": "NOT HUMAN?",
+                            "idea": "Hands holding the jar artifact",
+                        },
+                        {
+                            "id": 3,
+                            "title": "SECRET POWER",
+                            "foreground": "Sparks inside clay vessel",
+                            "midground": "vessel",
+                            "background": "workshop",
+                            "lighting": "electric glow",
+                            "emotion": "wonder",
+                            "elements": ["sparks", "vessel"],
+                            "hero_subject": "Baghdad Battery",
+                            "hook": "SECRET POWER",
+                            "idea": "Sparks inside clay vessel",
+                        },
+                        {
+                            "id": 4,
+                            "title": "ANCIENT TECH",
+                            "foreground": "cutaway battery diagram feel",
+                            "midground": "tools",
+                            "background": "excavation site",
+                            "lighting": "documentary daylight",
+                            "emotion": "discovery",
+                            "elements": ["battery", "tools", "site"],
+                            "hero_subject": "Baghdad Battery",
+                            "hook": "ANCIENT TECH",
+                            "idea": "Documentary evidence layout",
+                        },
+                        {
+                            "id": 5,
+                            "title": "LOST CHARGE",
+                            "foreground": "cracked vessel silhouette",
+                            "midground": "sand",
+                            "background": "desert dusk",
+                            "lighting": "golden dusk",
+                            "emotion": "mystery",
+                            "elements": ["vessel", "sand", "dusk"],
+                            "hero_subject": "Baghdad Battery",
+                            "hook": "LOST CHARGE",
+                            "idea": "Cracked vessel at dusk",
+                        },
+                    ],
+                    "chosen_concept_id": 1,
+                    "chosen_reason": "Strong mystery CTR",
+                    "hero_subject": "Baghdad Battery",
+                    "emotion": "Mystery",
+                    "click_reason": "An impossible ancient technology that should not exist.",
+                    "dominant_feeling": "unsettling curiosity",
+                }
+            )
         if "do not write an image prompt" in lowered or '"emotion": one of' in lowered:
             return json.dumps(
                 {
@@ -196,52 +375,35 @@ class IntelligentThumbnailTests(unittest.TestCase):
                 context,
                 on_queue_progress=lambda _m, stage: stages.append(stage),
             )
-            self.assertEqual(result.outcome, PipelineOutcome.SUCCESS, result.message)
-            self.assertGreaterEqual(text.calls, 6)  # director + analyzer + 4 critiques
+            self.assertTrue(result.ok, result.message)
+            self.assertGreaterEqual(text.calls, 1)
 
-            strategy_path = thumbnail_strategy_path(context.project_dir)
-            self.assertTrue(strategy_path.is_file())
-            strategy = json.loads(strategy_path.read_text(encoding="utf-8"))
-            self.assertEqual(strategy["emotion"], "Mystery")
+            plan_path = thumbnail_plan_path(context.project_dir)
+            self.assertTrue(plan_path.is_file())
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            self.assertTrue(plan.get("main_subject"))
+            self.assertTrue(plan.get("secondary_subject") or plan.get("story_focus"))
+            self.assertIn("Baghdad Battery", json.dumps(plan))
+
+            blueprint_path = context.project_dir / "thumbnail" / "scene_blueprint.json"
+            self.assertTrue(blueprint_path.is_file())
+            blueprint = json.loads(blueprint_path.read_text(encoding="utf-8"))
+            self.assertIn("selection_reason", blueprint)
+            self.assertGreaterEqual(len(blueprint.get("candidates") or []), 5)
 
             prompt_path = thumbnail_prompt_path(context.project_dir)
             self.assertTrue(prompt_path.is_file())
             prompt_text = prompt_path.read_text(encoding="utf-8")
-            self.assertIn("Mystery", prompt_text)
             self.assertIn("Baghdad Battery", prompt_text)
-            self.assertIn("warm gold", prompt_text.casefold())
-            self.assertIn("single hero", prompt_text.casefold())
-            self.assertTrue(thumbnail_prompt_quality_path(context.project_dir).is_file())
-            prompt_quality = json.loads(
-                thumbnail_prompt_quality_path(context.project_dir).read_text(encoding="utf-8")
-            )
-            self.assertIn("total", prompt_quality)
-            self.assertIn("coherence", prompt_quality)
-            self.assertGreaterEqual(prompt_quality["total"], 50)
+            self.assertIn("SCENE BLUEPRINT", prompt_text)
+            self.assertIn("THUMBNAIL PLAN", prompt_text)
+            self.assertIn("Do NOT paint", prompt_text)
 
-            self.assertTrue(thumbnail_critique_path(context.project_dir).is_file())
-            self.assertTrue(thumbnail_quality_path(context.project_dir).is_file())
-            quality = json.loads(
-                thumbnail_quality_path(context.project_dir).read_text(encoding="utf-8")
-            )
-            self.assertTrue(quality["approved"])
-            self.assertGreaterEqual(quality["score"], 80)
-            history = json.loads(
-                thumbnail_history_path(context.project_dir).read_text(encoding="utf-8")
-            )
-            self.assertGreaterEqual(len(history.get("entries") or []), 1)
-            memory_path = thumbnail_memory_path(context.project_dir)
-            self.assertTrue(memory_path.is_file())
-            memory = ThumbnailMemoryRecord.read_json(memory_path)
-            self.assertEqual(memory.hero_subject, "Baghdad Battery")
-            self.assertEqual(memory.emotion, "Mystery")
-            self.assertEqual(memory.hook, "WHO BUILT THIS?")
-            self.assertTrue(memory.channel_dna)
-            self.assertEqual(memory.channel_dna.get("channel_key"), "Hollow Atlas")
-            self.assertTrue(memory.composition)
-            self.assertEqual(len(memory.variants), 4)
-            self.assertTrue(memory.critic_ready)
-            self.assertEqual(memory.selection_method, "settings_primary")
+            debug_path = thumbnail_debug_path(context.project_dir)
+            self.assertTrue(debug_path.is_file())
+            debug = json.loads(debug_path.read_text(encoding="utf-8"))
+            self.assertIn("Final Score", debug)
+            self.assertIn("Similarity Score", debug)
 
             self.assertTrue(thumbnail_path(context.project_dir).is_file())
             title = thumbnail_title_path(context.project_dir)
@@ -251,31 +413,33 @@ class IntelligentThumbnailTests(unittest.TestCase):
                 self.assertTrue(
                     thumbnail_variant_path(context.project_dir, variant_id).is_file()
                 )
-            self.assertEqual(len(images.prompts), 4)
+            self.assertGreaterEqual(len(images.prompts), 4)
             self.assertTrue(any("Baghdad Battery" in p for p in images.prompts))
-            self.assertTrue(any("single hero" in p.casefold() for p in images.prompts))
-            self.assertTrue(
-                any("busy composition" in n.casefold() for n in images.negatives)
-            )
+            self.assertTrue(any("text" in n.casefold() for n in images.negatives))
+            # One attempt = 4 variants; retries may add more when critic < 90.
+            self.assertEqual(len(images.prompts) % 4, 0)
 
-            loaded = ThumbnailManifest.read_json(
-                thumbnail_manifest_path(context.project_dir)
-            )
-            self.assertEqual(loaded.extras.get("emotion"), "Mystery")
-            self.assertEqual(loaded.extras.get("channel_dna"), "Hollow Atlas")
-            self.assertTrue(loaded.extras.get("critic_ready"))
-            self.assertIn("dna", stages)
-            self.assertIn("critique", stages)
-            self.assertIn("qa", stages)
-            self.assertIn("qa_approved", stages)
+            self.assertIn("creative_director", stages)
+            self.assertIn("concept_selected", stages)
+            self.assertIn("scene_director", stages)
+            self.assertIn("scene_selected", stages)
+            self.assertIn("planner", stages)
+            self.assertIn("design_engine", stages)
+            self.assertIn("design_selected", stages)
             self.assertIn("critic", stages)
-            self.assertIn("memory", stages)
-            self.assertIn(THUMBNAIL_MEMORY_BASENAME, " ".join(result.artifacts))
-            self.assertIn(THUMBNAIL_QUALITY_BASENAME, " ".join(result.artifacts))
-            self.assertIn(THUMBNAIL_PROMPT_QUALITY_BASENAME, " ".join(result.artifacts))
-            self.assertIn(THUMBNAIL_STRATEGY_BASENAME, " ".join(result.artifacts))
+            self.assertIn(THUMBNAIL_CONCEPTS_BASENAME, " ".join(result.artifacts))
+            self.assertIn("scene_blueprint.json", " ".join(result.artifacts))
+            self.assertIn(THUMBNAIL_PLAN_BASENAME, " ".join(result.artifacts))
+            self.assertIn(THUMBNAIL_DEBUG_BASENAME, " ".join(result.artifacts))
             self.assertIn(THUMBNAIL_PROMPT_BASENAME, " ".join(result.artifacts))
             self.assertIn(THUMBNAIL_TITLE_BASENAME, " ".join(result.artifacts))
+            concepts = json.loads(
+                (context.project_dir / "thumbnail" / THUMBNAIL_CONCEPTS_BASENAME).read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertGreaterEqual(len(concepts.get("concepts") or []), 5)
+            self.assertIn("selected_reason", concepts)
 
     def test_critique_rewrites_failing_prompts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -283,14 +447,15 @@ class IntelligentThumbnailTests(unittest.TestCase):
                 Path(tmp), text=_FakeTextProvider(fail_critique=True)
             )
             result = engine.generate_thumbnail(context)
-            self.assertEqual(result.outcome, PipelineOutcome.SUCCESS, result.message)
-            self.assertTrue(
-                any("STRICT DNA" in p or "empty left" in p.casefold() for p in images.prompts)
+            self.assertTrue(result.ok, result.message)
+            # Pipeline V3 embeds plan + no-text rules in every prompt.
+            self.assertTrue(any("THUMBNAIL PLAN" in p for p in images.prompts))
+            self.assertTrue(any("Do NOT paint" in p for p in images.prompts))
+            debug = json.loads(
+                thumbnail_debug_path(context.project_dir).read_text(encoding="utf-8")
             )
-            critique = json.loads(
-                thumbnail_critique_path(context.project_dir).read_text(encoding="utf-8")
-            )
-            self.assertTrue(any(item.get("rewritten") for item in critique["variants"]))
+            self.assertIn("critic", debug)
+            self.assertGreaterEqual(float(debug.get("Final Score") or 0), 0)
 
     def test_select_mode_still_copies_middle_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -11,6 +11,7 @@ from PySide6.QtCore import QStandardPaths
 from app.core.forge_settings import ForgeSettings
 from app.core.movie_settings import MovieSettings
 from app.core.voice_settings import VoiceSettings
+from app.ai.settings import AIOrchestratorSettings
 
 
 CONFIG_FILENAME = "config.json"
@@ -45,6 +46,7 @@ class AppConfig:
     voice_provider: str | None = None
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     movie: MovieSettings = field(default_factory=MovieSettings)
+    ai: AIOrchestratorSettings = field(default_factory=AIOrchestratorSettings.defaults)
 
     @classmethod
     def load(cls, default_root: Path | None = None) -> AppConfig:
@@ -101,6 +103,9 @@ class AppConfig:
         movie_raw = raw.get("movie")
         movie = MovieSettings.from_mapping(movie_raw if isinstance(movie_raw, dict) else None)
 
+        ai_raw = raw.get("ai")
+        ai = AIOrchestratorSettings.from_mapping(ai_raw if isinstance(ai_raw, dict) else None)
+
         return cls(
             data_root=data_root,
             project_root=project_root,
@@ -112,6 +117,7 @@ class AppConfig:
             voice_provider=voice_provider,
             voice=voice,
             movie=movie,
+            ai=ai,
         )
 
     def save(self) -> None:
@@ -130,5 +136,6 @@ class AppConfig:
             "voice_provider": self.voice_provider,
             "voice": self.voice.to_dict(),
             "movie": self.movie.to_dict(),
+            "ai": self.ai.to_dict(),
         }
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

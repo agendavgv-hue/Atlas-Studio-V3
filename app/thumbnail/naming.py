@@ -9,11 +9,17 @@ THUMBNAIL_BASENAME = "thumbnail.png"
 THUMBNAIL_TITLE_BASENAME = "thumbnail_title.txt"
 THUMBNAIL_PROMPT_BASENAME = "thumbnail_prompt.txt"
 THUMBNAIL_STRATEGY_BASENAME = "thumbnail_strategy.json"
+THUMBNAIL_CONCEPTS_BASENAME = "thumbnail_concepts.json"
 THUMBNAIL_MEMORY_BASENAME = "thumbnail_memory.json"
 THUMBNAIL_CRITIQUE_BASENAME = "thumbnail_critique.json"
 THUMBNAIL_QUALITY_BASENAME = "thumbnail_quality.json"
 THUMBNAIL_HISTORY_BASENAME = "thumbnail_history.json"
 THUMBNAIL_PROMPT_QUALITY_BASENAME = "thumbnail_prompt_quality.json"
+THUMBNAIL_PLAN_BASENAME = "thumbnail_plan.json"
+THUMBNAIL_DEBUG_BASENAME = "thumbnail_debug.json"
+SCENE_BLUEPRINT_BASENAME = "scene_blueprint.json"
+THUMBNAIL_REVIEW_BASENAME = "thumbnail_review.json"
+DESIGN_REVIEW_BASENAME = "design_review.json"
 MANIFEST_BASENAME = "thumbnail_manifest.json"
 
 VARIANT_BASENAMES: dict[str, str] = {
@@ -58,6 +64,11 @@ def thumbnail_strategy_path(project_dir: Path) -> Path:
     return resolve_thumbnail_dir(project_dir) / THUMBNAIL_STRATEGY_BASENAME
 
 
+def thumbnail_concepts_path(project_dir: Path) -> Path:
+    """Think→choose concepts — ``thumbnail/thumbnail_concepts.json``."""
+    return resolve_thumbnail_dir(project_dir) / THUMBNAIL_CONCEPTS_BASENAME
+
+
 def thumbnail_memory_path(project_dir: Path) -> Path:
     """Learning memory — ``thumbnail/thumbnail_memory.json``."""
     return resolve_thumbnail_dir(project_dir) / THUMBNAIL_MEMORY_BASENAME
@@ -81,6 +92,31 @@ def thumbnail_history_path(project_dir: Path) -> Path:
 def thumbnail_prompt_quality_path(project_dir: Path) -> Path:
     """Prompt craft score — ``thumbnail/thumbnail_prompt_quality.json``."""
     return resolve_thumbnail_dir(project_dir) / THUMBNAIL_PROMPT_QUALITY_BASENAME
+
+
+def thumbnail_plan_path(project_dir: Path) -> Path:
+    """Composition plan — ``thumbnail/thumbnail_plan.json``."""
+    return resolve_thumbnail_dir(project_dir) / THUMBNAIL_PLAN_BASENAME
+
+
+def thumbnail_debug_path(project_dir: Path) -> Path:
+    """Pipeline debug report — ``thumbnail/thumbnail_debug.json``."""
+    return resolve_thumbnail_dir(project_dir) / THUMBNAIL_DEBUG_BASENAME
+
+
+def scene_blueprint_path(project_dir: Path) -> Path:
+    """Scene Director lock — ``thumbnail/scene_blueprint.json``."""
+    return resolve_thumbnail_dir(project_dir) / SCENE_BLUEPRINT_BASENAME
+
+
+def thumbnail_review_path(project_dir: Path) -> Path:
+    """Critic review board — ``thumbnail/thumbnail_review.json``."""
+    return resolve_thumbnail_dir(project_dir) / THUMBNAIL_REVIEW_BASENAME
+
+
+def design_review_path(project_dir: Path) -> Path:
+    """Design Engine board — ``thumbnail/design_review.json``."""
+    return resolve_thumbnail_dir(project_dir) / DESIGN_REVIEW_BASENAME
 
 
 def thumbnail_variant_path(project_dir: Path, variant_id: str) -> Path:

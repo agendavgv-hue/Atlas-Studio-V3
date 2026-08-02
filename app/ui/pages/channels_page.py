@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
@@ -35,6 +35,8 @@ from app.ui.widgets.voice_library import VoiceLibraryWidget
 
 
 class ChannelsPage(QWidget):
+    channel_studio_requested = Signal(str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("PageFrame")
@@ -49,6 +51,7 @@ class ChannelsPage(QWidget):
         self._list = QListWidget()
         self._list.setObjectName("ChannelList")
         self._list.itemSelectionChanged.connect(self._on_selection_changed)
+        self._list.itemDoubleClicked.connect(self._open_channel_studio)
 
         self._empty = EmptyState()
 
@@ -63,6 +66,10 @@ class ChannelsPage(QWidget):
         ai_create_button = QPushButton("AI Channel Creator")
         ai_create_button.clicked.connect(self._open_ai_channel_creator)
 
+        studio_button = QPushButton("Open Channel Studio")
+        studio_button.setObjectName("PrimaryButton")
+        studio_button.clicked.connect(self._open_channel_studio)
+
         refresh_button = QPushButton("Refresh")
         refresh_button.clicked.connect(self.refresh)
 
@@ -70,6 +77,7 @@ class ChannelsPage(QWidget):
         create_row.addWidget(self._name_input, stretch=1)
         create_row.addWidget(create_button)
         create_row.addWidget(ai_create_button)
+        create_row.addWidget(studio_button)
         create_row.addWidget(refresh_button)
 
         self._voice_title = QLabel("Channel Narrator")
@@ -232,6 +240,21 @@ class ChannelsPage(QWidget):
             self._status.setText(f"Active channel: {active}")
         else:
             self._status.setText("Select a channel to edit its narrator.")
+
+    def _open_channel_studio(self, *_args) -> None:
+        folder = self._current_folder
+        if not folder:
+            items = self._list.selectedItems()
+            if items:
+                folder = str(items[0].data(Qt.ItemDataRole.UserRole) or "")
+        if not folder:
+            QMessageBox.information(
+                self,
+                "Channel Studio",
+                "Select a channel first, then open Channel Studio.",
+            )
+            return
+        self.channel_studio_requested.emit(folder)
 
     def _create_channel(self) -> None:
         app = self._app()

@@ -22,7 +22,16 @@ from app.thumbnail.progress import ThumbnailQueueProgress
 from app.ui.branding.identity import WINDOW_TITLE
 from app.ui.motion.fades import fade_widget
 from app.ui.notifications.notification_host import NotificationHost
-from app.ui.pages import ChannelsPage, DashboardPage, ProjectsPage, SettingsPage
+from app.ui.pages import (
+    AIProvidersPage,
+    ChannelStudioPage,
+    ChannelsPage,
+    DashboardPage,
+    DesignReviewPage,
+    ProjectsPage,
+    SettingsPage,
+    ThumbnailReviewPage,
+)
 from app.ui.pages.project_workspace_page import ProjectWorkspacePage
 from app.ui.sidebar import Sidebar
 
@@ -46,12 +55,21 @@ class MainWindow(QMainWindow):
         self._projects_page = ProjectsPage()
         self._workspace_page = ProjectWorkspacePage()
         self._settings_page = SettingsPage()
+        self._ai_providers_page = AIProvidersPage()
+        self._thumbnail_review_page = ThumbnailReviewPage()
+        self._design_review_page = DesignReviewPage()
+        self._channels_page = ChannelsPage()
+        self._channel_studio_page = ChannelStudioPage()
 
         self._page_index = {
             "dashboard": self._pages.addWidget(DashboardPage()),
-            "channels": self._pages.addWidget(ChannelsPage()),
+            "channels": self._pages.addWidget(self._channels_page),
+            "channel_studio": self._pages.addWidget(self._channel_studio_page),
             "projects": self._pages.addWidget(self._projects_page),
             "project_workspace": self._pages.addWidget(self._workspace_page),
+            "thumbnail_review": self._pages.addWidget(self._thumbnail_review_page),
+            "design_review": self._pages.addWidget(self._design_review_page),
+            "ai_providers": self._pages.addWidget(self._ai_providers_page),
             "settings": self._pages.addWidget(self._settings_page),
         }
 
@@ -78,10 +96,15 @@ class MainWindow(QMainWindow):
             app.tasks.voice_progress.connect(self._on_voice_progress)
             app.tasks.movie_progress.connect(self._on_movie_progress)
             app.tasks.thumbnail_progress.connect(self._on_thumbnail_progress)
+            app.tasks.shorts_progress.connect(self._on_shorts_progress)
             app.tasks.image_finished.connect(self._on_image_finished)
             app.tasks.voice_finished.connect(self._on_voice_finished)
             app.tasks.movie_finished.connect(self._on_movie_finished)
             app.tasks.thumbnail_finished.connect(self._on_thumbnail_finished)
+            app.tasks.shorts_finished.connect(self._on_shorts_finished)
+            app.generation.status_updated.connect(self._on_generation_status)
+            app.generation.running_changed.connect(self._on_generation_running)
+            app.generation.finished.connect(self._on_generation_finished)
             self._on_global_status(app.tasks.status)
             app.forge_status.status_changed.connect(self._on_forge_status)
             app.forge_status.message_changed.connect(self._on_forge_message)
@@ -93,6 +116,7 @@ class MainWindow(QMainWindow):
         self._sidebar.forge_action_requested.connect(self._on_forge_action)
         self._projects_page.project_open_requested.connect(self._open_workspace)
         self._workspace_page.back_requested.connect(lambda: self._show_page("projects"))
+        self._channels_page.channel_studio_requested.connect(self._open_channel_studio)
         self._show_page("dashboard")
 
     def closeEvent(self, event) -> None:  # noqa: N802
@@ -217,9 +241,44 @@ class MainWindow(QMainWindow):
             focus()
 
     def _on_global_status(self, text: str) -> None:
+        app = AtlasApplication.instance()
+        if isinstance(app, AtlasApplication) and app.generation.is_running:
+            return
         self._sidebar.status_card.set_from_status_text(text)
 
+    def _on_generation_status(self, status) -> None:
+        self._sidebar.status_card.set_from_generation_status(status)
+
+    def _on_generation_running(self, running: bool) -> None:
+        if not running:
+            app = AtlasApplication.instance()
+            if isinstance(app, AtlasApplication):
+                self._on_global_status(app.tasks.status)
+
+    def _on_generation_finished(self, result) -> None:
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        if result.outcome == PipelineOutcome.SUCCESS:
+            app.show_notification("Production Complete", result.message or "Production Completed")
+        elif result.outcome == PipelineOutcome.CANCELLED:
+            app.show_notification("Production Cancelled", result.message or "Generation Cancelled")
+        elif result.outcome == PipelineOutcome.FAILED:
+            app.show_notification("Production Failed", result.message)
+            self._sidebar.status_card.set_progress(
+                task="Failed",
+                item=result.message,
+                percent=0,
+                error=result.message,
+            )
+
+    def _one_click_running(self) -> bool:
+        app = AtlasApplication.instance()
+        return bool(isinstance(app, AtlasApplication) and app.generation.is_running)
+
     def _on_image_progress(self, progress: ImageQueueProgress) -> None:
+        if self._one_click_running():
+            return
         item = progress.message.strip() or progress.short_prompt
         self._sidebar.status_card.set_progress(
             task="Generating Images",
@@ -230,6 +289,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_voice_progress(self, progress: VoiceQueueProgress) -> None:
+        if self._one_click_running():
+            return
         item = progress.message.strip() or progress.short_detail
         indeterminate = progress.total <= 0
         self._sidebar.status_card.set_progress(
@@ -242,6 +303,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_movie_progress(self, progress: MovieQueueProgress) -> None:
+        if self._one_click_running():
+            return
         item = progress.short_label or progress.message
         self._sidebar.status_card.set_progress(
             task="Generating Movie",
@@ -253,6 +316,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_thumbnail_progress(self, progress: ThumbnailQueueProgress) -> None:
+        if self._one_click_running():
+            return
         self._sidebar.status_card.set_progress(
             task="Generating Thumbnail",
             item=progress.message or progress.stage,
@@ -260,7 +325,24 @@ class MainWindow(QMainWindow):
             indeterminate=True,
         )
 
+    def _on_shorts_progress(self, progress) -> None:
+        if self._one_click_running():
+            return
+        item = progress.message
+        if progress.total > 0 and progress.current > 0:
+            item = f"Short {progress.current} / {progress.total}"
+        self._sidebar.status_card.set_progress(
+            task="Creating Shorts",
+            current=progress.current if progress.total else None,
+            total=progress.total if progress.total else None,
+            item=item,
+            elapsed_seconds=progress.elapsed_seconds,
+            indeterminate=progress.total <= 0,
+        )
+
     def _on_image_finished(self, result) -> None:
+        if self._one_click_running():
+            return
         app = AtlasApplication.instance()
         if not isinstance(app, AtlasApplication):
             return
@@ -274,6 +356,8 @@ class MainWindow(QMainWindow):
             app.show_notification("Images Failed", result.message)
 
     def _on_voice_finished(self, result) -> None:
+        if self._one_click_running():
+            return
         app = AtlasApplication.instance()
         if not isinstance(app, AtlasApplication):
             return
@@ -287,6 +371,8 @@ class MainWindow(QMainWindow):
             app.show_notification("Voice Failed", result.message)
 
     def _on_movie_finished(self, result) -> None:
+        if self._one_click_running():
+            return
         app = AtlasApplication.instance()
         if not isinstance(app, AtlasApplication):
             return
@@ -300,6 +386,8 @@ class MainWindow(QMainWindow):
             app.show_notification("Movie Failed", result.message)
 
     def _on_thumbnail_finished(self, result) -> None:
+        if self._one_click_running():
+            return
         app = AtlasApplication.instance()
         if not isinstance(app, AtlasApplication):
             return
@@ -312,6 +400,21 @@ class MainWindow(QMainWindow):
         elif result.outcome == PipelineOutcome.FAILED:
             app.show_notification("Thumbnail Failed", result.message)
 
+    def _on_shorts_finished(self, result) -> None:
+        if self._one_click_running():
+            return
+        app = AtlasApplication.instance()
+        if not isinstance(app, AtlasApplication):
+            return
+        if result.outcome == PipelineOutcome.SUCCESS:
+            app.show_notification("Shorts Complete", result.message)
+        elif result.outcome == PipelineOutcome.WARNING:
+            app.show_notification("Shorts Warning", result.message)
+        elif result.outcome == PipelineOutcome.CANCELLED:
+            app.show_notification("Shorts Cancelled", result.message or "Cancelled")
+        elif result.outcome == PipelineOutcome.FAILED:
+            app.show_notification("Shorts Failed", result.message)
+
     def _show_page(self, key: str) -> None:
         index = self._page_index.get(key)
         if index is not None:
@@ -320,13 +423,26 @@ class MainWindow(QMainWindow):
             if current is not None:
                 fade_widget(current, start=0.92, end=1.0, duration_ms=120)
             nav_key = "projects" if key == "project_workspace" else key
-            if nav_key in {"dashboard", "channels", "projects", "settings"}:
+            if nav_key in {
+                "dashboard",
+                "channels",
+                "channel_studio",
+                "projects",
+                "thumbnail_review",
+                "design_review",
+                "ai_providers",
+                "settings",
+            }:
                 self._sidebar.set_active(nav_key)
         self._notifications.raise_()
 
     def _open_workspace(self, channel_name: str, project_folder: str) -> None:
         self._workspace_page.load_project(channel_name, project_folder)
         self._show_page("project_workspace")
+
+    def _open_channel_studio(self, folder_name: str) -> None:
+        self._show_page("channel_studio")
+        self._channel_studio_page.load_channel(folder_name)
 
     def current_page_key(self) -> str:
         current = self._pages.currentIndex()

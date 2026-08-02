@@ -1,6 +1,7 @@
 """ThumbnailExporter — write strategy, prompt, hook, variants, primary PNG.
 
 Does not select sources, call providers, or invent prompts.
+Atlas composites logo/frame/text after AI generation.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.thumbnail.brand_overlay import apply_brand_overlays
+from app.thumbnail.intelligence.branding import LogoPlacement
 from app.thumbnail.naming import (
     thumbnail_critique_path,
     thumbnail_path,
@@ -18,6 +21,7 @@ from app.thumbnail.naming import (
     thumbnail_title_path,
     thumbnail_variant_path,
 )
+from app.thumbnail.text_overlay import render_thumbnail_text
 from app.thumbnail.thumbnail_director import ThumbnailStrategy
 
 
@@ -52,8 +56,17 @@ class ThumbnailExporter:
         strategy: ThumbnailStrategy | None = None,
         primary_prompt: str = "",
         critique_reports: list[dict[str, Any]] | None = None,
+        channel_name: str = "",
+        logo_path: Path | None = None,
+        frame_path: Path | None = None,
+        logo_placement: LogoPlacement | None = None,
+        text_fill_hex: str = "",
+        text_outline_hex: str = "",
+        font_family: str = "",
+        max_words: int = 0,
+        text_align_left: bool | None = None,
     ) -> ThumbnailExportResult:
-        """Write strategy/prompt/title + four variant PNGs + primary ``thumbnail.png``."""
+        """Write strategy/prompt/title + four variant PNGs + branded primary."""
         if not variants:
             raise ValueError("Cannot export thumbnails without variant images.")
         hook_text = (hook or "").strip()
@@ -98,6 +111,24 @@ class ThumbnailExporter:
             by_id[variant_id.upper()] = image_png
 
         primary_bytes = by_id.get(primary_variant_id.upper()) or variants[0][1]
+        # 1) Frame + logo from Brand Kit (never AI-generated).
+        primary_bytes = apply_brand_overlays(
+            primary_bytes,
+            logo_path=logo_path,
+            frame_path=frame_path,
+            placement=logo_placement,
+        )
+        # 2) Atlas typography — never rely on the image model for text.
+        primary_bytes = render_thumbnail_text(
+            primary_bytes,
+            hook_text,
+            channel_name=channel_name,
+            fill_hex=text_fill_hex,
+            outline_hex=text_outline_hex,
+            font_family=font_family,
+            align_left=text_align_left,
+            max_words=max_words,
+        )
         primary = thumbnail_path(project_dir)
         primary.write_bytes(primary_bytes)
         written += len(primary_bytes)

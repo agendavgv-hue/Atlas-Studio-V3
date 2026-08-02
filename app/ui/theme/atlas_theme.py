@@ -142,9 +142,9 @@ def stylesheet() -> str:
     QProgressBar#SidebarStatusBar {{
         background-color: {c["bg_deep"]};
         border: 1px solid {c["border"]};
-        border-radius: 7px;
-        min-height: 14px;
-        max-height: 14px;
+        border-radius: 8px;
+        min-height: 18px;
+        max-height: 18px;
     }}
 
     QProgressBar#SidebarStatusBar::chunk {{

@@ -49,7 +49,7 @@ class StatusCard(QFrame):
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
         self._bar.setTextVisible(False)
-        self._bar.setFixedHeight(14)
+        self._bar.setFixedHeight(18)
 
         self._item_caption = QLabel("Current Item")
         self._item_caption.setObjectName("SidebarStatusCaption")
@@ -57,7 +57,7 @@ class StatusCard(QFrame):
         self._item.setObjectName("SidebarStatusValue")
         self._item.setWordWrap(True)
 
-        self._elapsed_caption = QLabel("Elapsed")
+        self._elapsed_caption = QLabel("Elapsed Time")
         self._elapsed_caption.setObjectName("SidebarStatusCaption")
         self._elapsed = QLabel("—")
         self._elapsed.setObjectName("SidebarStatusValue")
@@ -138,21 +138,41 @@ class StatusCard(QFrame):
         elapsed_seconds: float = 0.0,
         eta_seconds: float | None = None,
         indeterminate: bool = False,
+        percent: int | None = None,
+        error: str = "",
     ) -> None:
         self._task.setText(task.strip() or "Working…")
 
-        if indeterminate or current is None or total is None or total <= 0:
+        if percent is not None:
+            pct = max(0, min(100, int(percent)))
+            self._bar.setRange(0, 100)
+            self._bar.setValue(pct)
+            self._progress_text.setText(f"{pct}%")
+        elif indeterminate or current is None or total is None or total <= 0:
             self._progress_text.setText("…")
             self._bar.setRange(0, 0)
         else:
-            self._bar.setRange(0, max(1, total))
-            self._bar.setValue(max(0, min(current, total)))
-            self._progress_text.setText(f"{current} / {total}")
+            pct = int(round(100.0 * max(0, min(current, total)) / max(1, total)))
+            self._bar.setRange(0, 100)
+            self._bar.setValue(pct)
+            self._progress_text.setText(f"{pct}%")
             if eta_seconds is None and current > 0 and elapsed_seconds > 0:
                 remaining = total - current
                 if remaining > 0:
                     eta_seconds = (elapsed_seconds / current) * remaining
 
-        self._item.setText((item or "").strip() or "—")
+        item_text = (error or item or "").strip() or "—"
+        self._item.setText(item_text)
         self._elapsed.setText(_format_seconds(elapsed_seconds if elapsed_seconds > 0 else None))
         self._eta.setText(_format_seconds(eta_seconds))
+
+    def set_from_generation_status(self, status) -> None:
+        """Apply a GenerationStatus snapshot from the one-click queue."""
+        self.set_progress(
+            task=status.task,
+            item=status.item,
+            elapsed_seconds=status.elapsed_seconds,
+            eta_seconds=status.eta_seconds,
+            percent=status.progress_percent,
+            error=status.error,
+        )

@@ -51,6 +51,14 @@ class Storage:
         return self._paths.cache
 
     @property
+    def brain(self) -> Path:
+        return self._paths.brain
+
+    @property
+    def creative(self) -> Path:
+        return self._paths.creative
+
+    @property
     def exports(self) -> Path:
         return self._paths.exports
 

@@ -15,6 +15,7 @@ from app.providers.forge_status import ForgeStatusService
 from app.providers.image_registry import ImageProviderRegistry
 from app.providers.registry import ProviderRegistry
 from app.providers.voice_registry import VoiceProviderRegistry
+from app.tasks.generation_queue import GenerationQueue
 from app.tasks.task_manager import TaskManager
 from app.ui.branding.icons import app_icon
 from app.ui.branding.identity import APP_NAME, ORGANIZATION
@@ -29,6 +30,7 @@ class AtlasApplication(QApplication):
     projects: ProjectService
     production: ProductionEngine
     tasks: TaskManager
+    generation: GenerationQueue
     forge_status: ForgeStatusService
 
     def __init__(self, argv: list[str], *, auto_bootstrap: bool = True) -> None:
@@ -41,6 +43,7 @@ class AtlasApplication(QApplication):
 
         self._notification_host = None
         self.tasks = TaskManager(self)
+        self.generation = GenerationQueue(self.tasks, parent=self)
         self.forge_status = ForgeStatusService(parent=self)
         self._bootstrapped = False
         self.aboutToQuit.connect(self._on_about_to_quit)

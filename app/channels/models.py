@@ -26,6 +26,7 @@ class Channel:
     image_prompt: str = ""
     negative_prompt: str = ""
     thumbnail_prompt: str = ""
+    outro_line: str = ""
     voice: dict[str, Any] = field(default_factory=dict)
     movie: dict[str, Any] = field(default_factory=dict)
     seo: dict[str, Any] = field(default_factory=dict)
@@ -45,6 +46,7 @@ class Channel:
             "image_prompt": self.image_prompt,
             "negative_prompt": self.negative_prompt,
             "thumbnail_prompt": self.thumbnail_prompt,
+            "outro_line": self.outro_line,
             "voice": self.voice,
             "movie": self.movie,
             "seo": self.seo,
@@ -64,6 +66,7 @@ class Channel:
             image_prompt=str(data.get("image_prompt") or ""),
             negative_prompt=str(data.get("negative_prompt") or ""),
             thumbnail_prompt=str(data.get("thumbnail_prompt") or ""),
+            outro_line=str(data.get("outro_line") or "").strip(),
             voice=dict(data.get("voice") or {}),
             movie=dict(data.get("movie") or {}),
             seo=dict(data.get("seo") or {}),

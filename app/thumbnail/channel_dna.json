@@ -1,18 +1,23 @@
 {
   "Hollow Atlas": {
     "display_name": "Hollow Atlas",
-    "signature": "A Hollow Atlas thumbnail is unmistakable without a logo: one ancient icon, warm gold against charcoal dark, vast empty left space, museum stillness, high contrast mystery.",
+    "signature": "A Hollow Atlas frame is unmistakable without a logo: warm gold against deep charcoal, museum grading, volumetric dust and god rays, ancient scale, forbidden-history mood — never National Geographic travel gloss, never generic AI.",
     "emotion": [
       "mystery",
       "wonder",
+      "awe",
+      "fear",
+      "curiosity",
       "discovery",
-      "ancient secrets"
+      "ancient power",
+      "forbidden knowledge",
+      "lost civilization"
     ],
     "visual_language": {
       "simplicity": "high",
       "hero_subjects": 1,
-      "composition": "clean",
-      "background": "supporting only",
+      "composition": "rule_of_thirds_with_depth",
+      "background": "epic supporting environment",
       "contrast": "high",
       "headline_side": "left",
       "headline_size": "very_large",
@@ -20,47 +25,51 @@
     },
     "color_language": {
       "primary": "warm gold",
-      "secondary": "dark charcoal",
-      "accent": "subtle amber"
+      "secondary": "deep charcoal / deep black",
+      "accent": "ancient bronze / amber / soft ivory"
     },
     "identity_rules": [
       "one hero only — never a crowd of relics",
-      "background must support, never compete",
-      "left third stays empty for the headline",
+      "background must support with epic depth, never compete",
+      "left third stays empty for the headline on thumbnails",
       "readable at YouTube small-grid size",
-      "looks like a documentary artifact reveal, not fantasy art"
+      "looks like a sealed museum vault / forbidden archaeology film, not fantasy art",
+      "same Style Engine as video scenes — thumbnail only adds contrast and text space"
     ]
   },
   "Mirror Drift": {
     "display_name": "Mirror Drift",
-    "signature": "A Mirror Drift thumbnail is unmistakable without a logo: one precise tech subject, cool blue-white light, industrial clarity, open left space, sharp perspective, high-contrast future.",
+    "signature": "A Mirror Drift frame is unmistakable without a logo: graphite and electric blue, chrome gloss, studio/keynote lighting, clean negative space, premium near-future tech — never warm museum dust, never cyberpunk clutter.",
     "emotion": [
       "curiosity",
       "awe",
-      "urgency",
-      "technological revelation"
+      "technological revelation",
+      "precision",
+      "premium power",
+      "clean wonder"
     ],
     "visual_language": {
       "simplicity": "high",
       "hero_subjects": 1,
-      "composition": "clean",
-      "background": "supporting only",
+      "composition": "product_cinema_negative_space",
+      "background": "minimal supporting infrastructure",
       "contrast": "high",
       "headline_side": "left",
       "headline_size": "very_large",
       "empty_space": "required"
     },
     "color_language": {
-      "primary": "cool white",
-      "secondary": "deep blue-black",
-      "accent": "electric cyan"
+      "primary": "electric blue / cyan",
+      "secondary": "deep blue-black / graphite",
+      "accent": "chrome / crisp white / subtle purple"
     },
     "identity_rules": [
       "one hero only — never a gadget collage",
       "background is supporting infrastructure or soft haze only",
-      "left third stays empty for the headline",
+      "left third stays empty for the headline on thumbnails",
       "readable at YouTube small-grid size",
-      "looks like precise industrial futurism, not generic sci-fi chaos"
+      "looks like Apple/Tesla/NASA/OpenAI presentation cinema, not generic sci-fi chaos",
+      "same Style Engine as video scenes — thumbnail only adds contrast and text space"
     ]
   }
 }

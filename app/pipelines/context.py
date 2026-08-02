@@ -20,6 +20,7 @@ class ChannelDefaults:
     image_prompt: str = ""
     negative_prompt: str = ""
     thumbnail_prompt: str = ""
+    outro_line: str = ""
     voice: dict[str, Any] = field(default_factory=dict)
     movie: dict[str, Any] = field(default_factory=dict)
     seo: dict[str, Any] = field(default_factory=dict)
@@ -31,6 +32,7 @@ class ChannelDefaults:
             image_prompt=str(data.get("image_prompt") or ""),
             negative_prompt=str(data.get("negative_prompt") or ""),
             thumbnail_prompt=str(data.get("thumbnail_prompt") or ""),
+            outro_line=str(data.get("outro_line") or "").strip(),
             voice=dict(data.get("voice") or {}),
             movie=dict(data.get("movie") or {}),
             seo=dict(data.get("seo") or {}),
@@ -44,6 +46,8 @@ class PipelineContext:
     project: Project
     project_dir: Path
     channel_defaults: ChannelDefaults = field(default_factory=ChannelDefaults)
+    creative_brief: Any | None = None
+    data_root: Path | None = None
 
     @property
     def channel_name(self) -> str:

@@ -10,6 +10,8 @@ CHANNELS = "Channels"
 PROJECTS = "Projects"
 ASSETS = "Assets"
 CACHE = "Cache"
+BRAIN = "Brain"
+CREATIVE = "Creative"
 EXPORTS = "Exports"
 LOGS = "Logs"
 
@@ -18,6 +20,8 @@ MANAGED_DIRECTORIES: tuple[str, ...] = (
     PROJECTS,
     ASSETS,
     CACHE,
+    BRAIN,
+    CREATIVE,
     EXPORTS,
     LOGS,
 )
@@ -48,6 +52,16 @@ class StoragePaths:
     @property
     def cache(self) -> Path:
         return self._root / CACHE
+
+    @property
+    def brain(self) -> Path:
+        """Channel Brain roots — durable per-channel identity + memory."""
+        return self._root / BRAIN
+
+    @property
+    def creative(self) -> Path:
+        """Creative Director roots — brand, style, references, rules."""
+        return self._root / CREATIVE
 
     @property
     def exports(self) -> Path:
