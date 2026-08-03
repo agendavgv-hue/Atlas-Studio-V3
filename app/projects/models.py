@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 
 STATUS_DRAFT = "Draft"
 STATUS_IN_PROGRESS = "In Progress"
@@ -27,6 +27,7 @@ PROJECT_STATUSES: tuple[str, ...] = (
 )
 
 # Blueprint workflow order — shell only in Phase 3.
+# TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
 WORKFLOW_STEPS: tuple[str, ...] = (
     "Idea",
     "Script",
@@ -34,7 +35,7 @@ WORKFLOW_STEPS: tuple[str, ...] = (
     "Images",
     "Voice",
     "Movie",
-    "Thumbnail",
+    # "Thumbnail",
     "SEO",
     "Export",
 )
@@ -58,6 +59,9 @@ class Project:
     thumbnail: dict[str, Any] | None = None
     seo: dict[str, Any] | None = None
     export: dict[str, Any] | None = None
+    # Frozen channel production defaults at project creation time.
+    # Later channel edits must not change this snapshot.
+    channel_snapshot: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create_default(
@@ -91,6 +95,7 @@ class Project:
             "thumbnail": self.thumbnail,
             "seo": self.seo,
             "export": self.export,
+            "channel_snapshot": dict(self.channel_snapshot or {}),
         }
 
     @classmethod
@@ -120,4 +125,5 @@ class Project:
             thumbnail=data.get("thumbnail"),
             seo=data.get("seo"),
             export=data.get("export"),
+            channel_snapshot=dict(data.get("channel_snapshot") or {}),
         )

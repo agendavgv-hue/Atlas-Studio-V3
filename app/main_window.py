@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -13,27 +15,39 @@ from PySide6.QtWidgets import (
 )
 
 from app.atlas_application import AtlasApplication
-from app.pipelines.image_progress import ImageQueueProgress
+from app.diagnostics.startup_profiler import StartupProfiler
 from app.pipelines.results import PipelineOutcome
-from app.pipelines.voice_progress import VoiceQueueProgress
 from app.providers.backend_status import BackendStatus
-from app.render.progress import MovieQueueProgress
-from app.thumbnail.progress import ThumbnailQueueProgress
 from app.ui.branding.identity import WINDOW_TITLE
 from app.ui.motion.fades import fade_widget
 from app.ui.notifications.notification_host import NotificationHost
-from app.ui.pages import (
-    AIProvidersPage,
-    ChannelStudioPage,
-    ChannelsPage,
-    DashboardPage,
-    DesignReviewPage,
-    ProjectsPage,
-    SettingsPage,
-    ThumbnailReviewPage,
-)
-from app.ui.pages.project_workspace_page import ProjectWorkspacePage
 from app.ui.sidebar import Sidebar
+
+
+# Sidebar-visible production pages only.
+_NAV_KEYS = frozenset(
+    {
+        "dashboard",
+        "channels",
+        "projects",
+        "settings",
+    }
+)
+
+# Hidden / secondary pages still constructable (not in sidebar).
+# TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
+_HIDDEN_PAGE_KEYS = frozenset(
+    {
+        "project_workspace",
+        "channel_dashboard",
+        "channel_settings",
+        "channel_studio",
+        "ai_workflow",  # Creative Brief — use via workflow later; not a toolbox entry
+        "thumbnail_review",
+        "design_review",
+        "ai_providers",  # App-level connections only (Settings Advanced)
+    }
+)
 
 
 class MainWindow(QMainWindow):
@@ -41,6 +55,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        profiler = StartupProfiler.instance()
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1200, 760)
         self.setMinimumSize(900, 600)
@@ -49,29 +64,13 @@ class MainWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
 
+        profiler.begin("sidebar_construct")
         self._sidebar = Sidebar()
+        profiler.end("sidebar_construct")
+
         self._pages = QStackedWidget()
-
-        self._projects_page = ProjectsPage()
-        self._workspace_page = ProjectWorkspacePage()
-        self._settings_page = SettingsPage()
-        self._ai_providers_page = AIProvidersPage()
-        self._thumbnail_review_page = ThumbnailReviewPage()
-        self._design_review_page = DesignReviewPage()
-        self._channels_page = ChannelsPage()
-        self._channel_studio_page = ChannelStudioPage()
-
-        self._page_index = {
-            "dashboard": self._pages.addWidget(DashboardPage()),
-            "channels": self._pages.addWidget(self._channels_page),
-            "channel_studio": self._pages.addWidget(self._channel_studio_page),
-            "projects": self._pages.addWidget(self._projects_page),
-            "project_workspace": self._pages.addWidget(self._workspace_page),
-            "thumbnail_review": self._pages.addWidget(self._thumbnail_review_page),
-            "design_review": self._pages.addWidget(self._design_review_page),
-            "ai_providers": self._pages.addWidget(self._ai_providers_page),
-            "settings": self._pages.addWidget(self._settings_page),
-        }
+        self._page_index: dict[str, int] = {}
+        self._page_widgets: dict[str, QWidget] = {}
 
         layout = QHBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -111,13 +110,102 @@ class MainWindow(QMainWindow):
             self._sync_forge_indicator()
 
         self._sidebar.page_requested.connect(self._show_page)
-        self._sidebar.about_requested.connect(self._settings_page.open_about)
+        self._sidebar.about_requested.connect(self._open_about)
         self._sidebar.forge_settings_requested.connect(self._open_forge_settings)
         self._sidebar.forge_action_requested.connect(self._on_forge_action)
-        self._projects_page.project_open_requested.connect(self._open_workspace)
-        self._workspace_page.back_requested.connect(lambda: self._show_page("projects"))
-        self._channels_page.channel_studio_requested.connect(self._open_channel_studio)
-        self._show_page("dashboard")
+
+        # Eagerly create only the landing page; other pages load on first visit.
+        with profiler.stage("dashboard_creation"):
+            self._ensure_page("dashboard")
+            self._show_page("dashboard")
+
+    def _page_factory(self, key: str) -> Callable[[], QWidget]:
+        def load(module_path: str, attr: str) -> Callable[[], QWidget]:
+            def factory() -> QWidget:
+                from importlib import import_module
+
+                module = import_module(module_path)
+                cls = getattr(module, attr)
+                return cls()
+
+            return factory
+
+        # Page modules are kept; sidebar only exposes production keys in _NAV_KEYS.
+        # TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
+        factories: dict[str, Callable[[], QWidget]] = {
+            "dashboard": load("app.ui.pages.dashboard_page", "DashboardPage"),
+            "channels": load("app.ui.pages.channels_page", "ChannelsPage"),
+            "channel_dashboard": load(
+                "app.ui.pages.channel_dashboard_page", "ChannelDashboardPage"
+            ),
+            "channel_settings": load(
+                "app.ui.pages.channel_settings_page", "ChannelSettingsPage"
+            ),
+            "channel_studio": load("app.ui.pages.channel_studio", "ChannelStudioPage"),
+            "projects": load("app.ui.pages.projects_page", "ProjectsPage"),
+            "project_workspace": load(
+                "app.ui.pages.project_workspace_page", "ProjectWorkspacePage"
+            ),
+            # Disconnected from sidebar — Settings embeds AIProvidersPage.
+            "ai_workflow": load("app.ui.pages.ai_workflow_page", "AIWorkflowPage"),
+            "thumbnail_review": load(
+                "app.ui.pages.thumbnail_review_page", "ThumbnailReviewPage"
+            ),
+            "design_review": load("app.ui.pages.design_review_page", "DesignReviewPage"),
+            "ai_providers": load("app.ui.pages.ai_providers_page", "AIProvidersPage"),
+            "settings": load("app.ui.pages.settings_page", "SettingsPage"),
+        }
+        factory = factories.get(key)
+        if factory is None:
+            raise KeyError(f"Unknown page key: {key}")
+        if key not in _NAV_KEYS and key not in _HIDDEN_PAGE_KEYS:
+            raise KeyError(f"Page key not registered for V3 UI: {key}")
+        return factory
+
+    def _ensure_page(self, key: str) -> QWidget:
+        existing = self._page_widgets.get(key)
+        if existing is not None:
+            return existing
+        widget = self._page_factory(key)()
+        self._wire_page(key, widget)
+        index = self._pages.addWidget(widget)
+        self._page_index[key] = index
+        self._page_widgets[key] = widget
+        return widget
+
+    def _wire_page(self, key: str, widget: QWidget) -> None:
+        if key == "projects":
+            widget.project_open_requested.connect(self._open_workspace)  # type: ignore[attr-defined]
+        elif key == "project_workspace":
+            widget.back_requested.connect(  # type: ignore[attr-defined]
+                lambda: self._show_page("projects")
+            )
+        elif key == "channels":
+            widget.channel_studio_requested.connect(self._open_channel_studio)  # type: ignore[attr-defined]
+            widget.channel_dashboard_requested.connect(self._open_channel_dashboard)  # type: ignore[attr-defined]
+        elif key == "channel_dashboard":
+            widget.back_requested.connect(lambda: self._show_page("channels"))  # type: ignore[attr-defined]
+            widget.project_open_requested.connect(self._open_workspace)  # type: ignore[attr-defined]
+            widget.channel_settings_requested.connect(self._open_channel_settings)  # type: ignore[attr-defined]
+            widget.channel_studio_requested.connect(self._open_channel_studio)  # type: ignore[attr-defined]
+            widget.create_project_requested.connect(self._create_project_for_channel)  # type: ignore[attr-defined]
+        elif key == "channel_settings":
+            widget.back_requested.connect(self._back_to_channel_dashboard)  # type: ignore[attr-defined]
+            widget.channel_studio_requested.connect(self._open_channel_studio)  # type: ignore[attr-defined]
+        elif key == "channel_studio":
+            pass
+
+    def show_startup_timeline(self) -> None:
+        """Open the Developer Mode startup timeline (from memory or last log)."""
+        from app.ui.dialogs.startup_timeline_dialog import StartupTimelineDialog
+
+        app = AtlasApplication.instance()
+        profile = None
+        if isinstance(app, AtlasApplication):
+            profile = app.startup_profile
+        if profile is None:
+            profile = StartupProfiler.instance().profile
+        StartupTimelineDialog(profile, parent=self).exec()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if not self._confirm_forge_shutdown():
@@ -234,9 +322,17 @@ class MainWindow(QMainWindow):
                 app.show_notification("Forge", "Restarting Forge...")
             self._sync_forge_indicator()
 
+    def _open_about(self) -> None:
+        page = self._ensure_page("settings")
+        open_about = getattr(page, "open_about", None)
+        if callable(open_about):
+            open_about()
+        self._show_page("settings")
+
     def _open_forge_settings(self) -> None:
         self._show_page("settings")
-        focus = getattr(self._settings_page, "focus_forge_section", None)
+        page = self._page_widgets.get("settings")
+        focus = getattr(page, "focus_forge_section", None) if page else None
         if callable(focus):
             focus()
 
@@ -416,33 +512,74 @@ class MainWindow(QMainWindow):
             app.show_notification("Shorts Failed", result.message)
 
     def _show_page(self, key: str) -> None:
+        try:
+            self._ensure_page(key)
+        except KeyError:
+            return
         index = self._page_index.get(key)
         if index is not None:
             self._pages.setCurrentIndex(index)
             current = self._pages.currentWidget()
             if current is not None:
                 fade_widget(current, start=0.92, end=1.0, duration_ms=120)
-            nav_key = "projects" if key == "project_workspace" else key
-            if nav_key in {
-                "dashboard",
-                "channels",
+            if key == "project_workspace":
+                nav_key = "projects"
+            elif key in {
                 "channel_studio",
-                "projects",
-                "thumbnail_review",
-                "design_review",
-                "ai_providers",
-                "settings",
+                "channel_dashboard",
+                "channel_settings",
             }:
+                nav_key = "channels"
+            elif key in {"ai_providers", "ai_workflow"}:
+                nav_key = "settings"
+            else:
+                nav_key = key
+            if nav_key in _NAV_KEYS:
                 self._sidebar.set_active(nav_key)
         self._notifications.raise_()
 
     def _open_workspace(self, channel_name: str, project_folder: str) -> None:
-        self._workspace_page.load_project(channel_name, project_folder)
+        workspace = self._ensure_page("project_workspace")
+        load = getattr(workspace, "load_project", None)
+        if callable(load):
+            load(channel_name, project_folder)
         self._show_page("project_workspace")
 
     def _open_channel_studio(self, folder_name: str) -> None:
         self._show_page("channel_studio")
-        self._channel_studio_page.load_channel(folder_name)
+        studio = self._page_widgets.get("channel_studio")
+        load = getattr(studio, "load_channel", None) if studio else None
+        if callable(load):
+            load(folder_name)
+
+    def _open_channel_dashboard(self, folder_name: str) -> None:
+        page = self._ensure_page("channel_dashboard")
+        load = getattr(page, "load_channel", None)
+        if callable(load):
+            load(folder_name)
+        self._show_page("channel_dashboard")
+
+    def _open_channel_settings(self, folder_name: str) -> None:
+        page = self._ensure_page("channel_settings")
+        load = getattr(page, "load_channel", None)
+        if callable(load):
+            load(folder_name)
+        self._show_page("channel_settings")
+
+    def _back_to_channel_dashboard(self) -> None:
+        page = self._page_widgets.get("channel_dashboard")
+        folder = getattr(page, "_folder", None) if page else None
+        if folder:
+            self._open_channel_dashboard(str(folder))
+        else:
+            self._show_page("channels")
+
+    def _create_project_for_channel(self, folder_name: str) -> None:
+        from app.ui.dialogs.create_project_dialog import CreateProjectDialog
+
+        dialog = CreateProjectDialog(folder_name, parent=self)
+        if dialog.exec() and dialog.created_folder():
+            self._open_workspace(folder_name, dialog.created_folder() or "")
 
     def current_page_key(self) -> str:
         current = self._pages.currentIndex()

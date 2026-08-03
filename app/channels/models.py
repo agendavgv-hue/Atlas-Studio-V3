@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-CHANNEL_SCHEMA_VERSION = 1
+CHANNEL_SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -30,6 +30,14 @@ class Channel:
     voice: dict[str, Any] = field(default_factory=dict)
     movie: dict[str, Any] = field(default_factory=dict)
     seo: dict[str, Any] = field(default_factory=dict)
+    # Channel production defaults — master config for new projects.
+    studio: dict[str, Any] = field(default_factory=dict)
+
+    def production_profile(self):
+        """Live production profile (channel is the master)."""
+        from app.channels.production_profile import ChannelProductionProfile
+
+        return ChannelProductionProfile.from_channel(self)
 
     @classmethod
     def create_default(cls, name: str) -> Channel:
@@ -50,6 +58,7 @@ class Channel:
             "voice": self.voice,
             "movie": self.movie,
             "seo": self.seo,
+            "studio": self.studio,
         }
 
     @classmethod
@@ -70,4 +79,5 @@ class Channel:
             voice=dict(data.get("voice") or {}),
             movie=dict(data.get("movie") or {}),
             seo=dict(data.get("seo") or {}),
+            studio=dict(data.get("studio") or {}),
         )

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.brain.service import ChannelBrainService
 from app.channels.channel_discovery import discover_channel_folder_names
 from app.channels.channel_paths import ChannelPaths
 from app.channels.channel_profile_store import ChannelProfilePackStore
@@ -16,7 +15,6 @@ from app.channels.reference_channels import (
     assert_not_reference_channel,
     is_reference_channel,
 )
-from app.channels.studio.service import ChannelStudioService
 from app.core.app_config import AppConfig
 from app.core.project_root import (
     ProjectRootError,
@@ -24,9 +22,6 @@ from app.core.project_root import (
     require_project_root,
 )
 from app.core.storage import Storage
-from app.creative.services.director_service import CreativeDirectorService
-from app.services.thumbnail_dna_service import ThumbnailDNAService
-from app.thumbnail.dna_loader import ChannelDNALoader
 
 # Forbidden characters for folder/channel names (platform-safe subset).
 _INVALID_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -39,6 +34,8 @@ class ChannelService:
         self._storage = storage
         self._config = config
         self._active_folder_name: str | None = None
+        self._list_cache: tuple[float, list[Channel]] | None = None
+        self._list_cache_ttl_s = 2.0
 
     @property
     def project_root(self) -> Path | None:
@@ -53,7 +50,12 @@ class ChannelService:
         resolved = ensure_project_root(path)
         self._config.project_root = resolved
         self._config.save()
+        self.invalidate_list_cache()
         return resolved
+
+    def invalidate_list_cache(self) -> None:
+        """Drop cached channel listings (call after create / root change)."""
+        self._list_cache = None
 
     def _paths(self) -> ChannelPaths:
         root = require_project_root(self._config.project_root)
@@ -61,6 +63,13 @@ class ChannelService:
 
     def list_channels(self) -> list[Channel]:
         """Discover library folders and ensure each has Atlas config."""
+        import time
+
+        now = time.monotonic()
+        cached = self._list_cache
+        if cached is not None and (now - cached[0]) < self._list_cache_ttl_s:
+            return list(cached[1])
+
         try:
             paths = self._paths()
         except ProjectRootError:
@@ -70,6 +79,7 @@ class ChannelService:
         channels: list[Channel] = []
         for name in discover_channel_folder_names(paths.project_root):
             channels.append(store.ensure_default(name))
+        self._list_cache = (now, list(channels))
         return channels
 
     def get_channel(self, name: str) -> Channel:
@@ -98,6 +108,7 @@ class ChannelService:
         self._ensure_channel_brain(created)
         self._ensure_creative_director(created)
         self._ensure_channel_studio(created)
+        self.invalidate_list_cache()
         return created
 
     def create_channel_from_profile(self, profile: GeneratedChannelProfile) -> Channel:
@@ -139,6 +150,7 @@ class ChannelService:
         self._ensure_channel_brain(created)
         self._ensure_creative_director(created)
         self._ensure_channel_studio(created)
+        self.invalidate_list_cache()
         return created
 
     def select_channel(self, name: str) -> Channel:
@@ -172,6 +184,10 @@ class ChannelService:
     def _ensure_channel_brain(self, channel: Channel) -> None:
         """Create Channel Brain pack if missing (never fails channel create)."""
         try:
+            from app.brain.service import ChannelBrainService
+            from app.services.thumbnail_dna_service import ThumbnailDNAService
+            from app.thumbnail.dna_loader import ChannelDNALoader
+
             brains = ChannelBrainService(self._config.data_root)
             learned = ThumbnailDNAService(self._config.data_root).get_thumbnail_dna(
                 channel.folder_name
@@ -195,6 +211,9 @@ class ChannelService:
     def _ensure_creative_director(self, channel: Channel) -> None:
         """Create Creative Director pack if missing (never fails channel create)."""
         try:
+            from app.brain.service import ChannelBrainService
+            from app.creative.services.director_service import CreativeDirectorService
+
             brains = ChannelBrainService(self._config.data_root)
             brain = None
             if brains.exists(channel.folder_name):
@@ -210,6 +229,8 @@ class ChannelService:
     def _ensure_channel_studio(self, channel: Channel) -> None:
         """Create Channel Studio pack if missing (never fails channel create)."""
         try:
+            from app.channels.studio.service import ChannelStudioService
+
             ChannelStudioService(self._config.data_root).ensure(
                 channel.folder_name,
                 channel=channel,

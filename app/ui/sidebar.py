@@ -1,4 +1,8 @@
-"""Application sidebar with brand mark, navigation, and live Status card."""
+"""Application sidebar with brand mark, navigation, and live Status card.
+
+V3 production-focused nav — AI toolbox pages and Thumbnail are disconnected
+from the sidebar (code kept for V3.1 / Settings).
+"""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
@@ -16,14 +20,15 @@ class Sidebar(QFrame):
     forge_settings_requested = Signal()
     forge_action_requested = Signal(str)
 
+    # Production-first navigation only.
+    # Channel Studio opens from Channels (not a daily sidebar destination).
+    # TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
+    # Disconnected from sidebar (keep page factories): ai_workflow, thumbnail_review,
+    # design_review, ai_providers (AI config lives in Settings only).
     NAV_ITEMS = (
         ("dashboard", "Dashboard"),
         ("channels", "Channels"),
-        ("channel_studio", "Channel Studio"),
         ("projects", "Projects"),
-        ("thumbnail_review", "Thumbnail Review"),
-        ("design_review", "Design Review"),
-        ("ai_providers", "AI Providers"),
         ("settings", "Settings"),
     )
 
@@ -35,7 +40,7 @@ class Sidebar(QFrame):
         brand = QWidget()
         brand.setObjectName("SidebarBrand")
         brand_layout = QVBoxLayout(brand)
-        brand_layout.setContentsMargins(20, 20, 20, 16)
+        brand_layout.setContentsMargins(20, 20, 16, 16)
         brand_layout.setSpacing(10)
 
         logo_image = QLabel()

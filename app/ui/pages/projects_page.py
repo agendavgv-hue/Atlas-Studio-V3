@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.atlas_application import AtlasApplication
+from app.channels.production_profile import ChannelProductionProfile
 from app.core.project_root import ProjectRootError, is_project_root_configured
 from app.ui.widgets.empty_state import EmptyState
 
@@ -30,7 +31,9 @@ class ProjectsPage(QWidget):
         title = QLabel("Projects")
         title.setObjectName("PageTitle")
 
-        self._subtitle = QLabel("Select a channel to manage its projects.")
+        self._subtitle = QLabel(
+            "Projects belong to the active channel. Defaults come from Channel Settings."
+        )
         self._subtitle.setObjectName("PageSubtitle")
 
         self._list = QListWidget()
@@ -156,9 +159,17 @@ class ProjectsPage(QWidget):
         for project in projects:
             try:
                 status = app.projects.lifecycle_status(channel, project.folder_name)
+                progress = app.projects.get_progress(channel, project.folder_name)
+                percent = progress.percent_complete
+                next_step = next(
+                    (s.label for s in progress.steps if not s.complete),
+                    "Complete",
+                )
+                detail = f"{percent}%  ·  Next: {next_step}"
             except (ProjectRootError, OSError, FileNotFoundError):
                 status = project.status
-            item = QListWidgetItem(f"{project.name}  —  {status}")
+                detail = status
+            item = QListWidgetItem(f"{project.name}\n{status}  ·  {detail}")
             item.setData(Qt.ItemDataRole.UserRole, project.folder_name)
             self._list.addItem(item)
 
@@ -197,8 +208,16 @@ class ProjectsPage(QWidget):
             QMessageBox.warning(self, "Atlas Studio", "Enter a project name.")
             return
         try:
-            project = app.projects.create_project(channel, name, idea=idea)
-            app.projects.open_project(channel, project.folder_name)
+            channel = app.channels.get_channel(channel)
+            snapshot = ChannelProductionProfile.from_channel(channel).to_dict()
+            project = app.projects.create_project(
+                channel.folder_name,
+                name,
+                idea=idea,
+                channel_snapshot=snapshot,
+            )
+            app.projects.open_project(channel.folder_name, project.folder_name)
+            channel_folder = channel.folder_name
         except (ProjectRootError, ValueError, FileNotFoundError, OSError) as exc:
             QMessageBox.warning(self, "Atlas Studio", str(exc))
             return
@@ -206,7 +225,7 @@ class ProjectsPage(QWidget):
         self._idea_input.clear()
         self.refresh()
         app.show_notification("Project Created", project.folder_name)
-        self.project_open_requested.emit(channel, project.folder_name)
+        self.project_open_requested.emit(channel_folder, project.folder_name)
 
     def _open_selected(self) -> None:
         app = self._app()

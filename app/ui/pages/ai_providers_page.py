@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
 
 from app.ai.roles import AIRole, ROLE_LABELS
 from app.ai.settings import IMAGE_PROVIDER_IDS, TEXT_PROVIDER_IDS, RoleBinding
-from app.providers.errors import ProviderError
-from app.providers.ollama import discover_ollama_models
+from app.atlas_application import AtlasApplication
+from app.tasks.ollama_connection_worker import OllamaConnectionWorker
 
 
 class AIProvidersPage(QWidget):
@@ -30,6 +30,8 @@ class AIProvidersPage(QWidget):
         super().__init__(parent)
         self.setObjectName("AIProvidersPage")
         self._role_widgets: dict[str, tuple[QComboBox, QLineEdit, QComboBox, QLineEdit]] = {}
+        self._thread: QThread | None = None
+        self._worker: OllamaConnectionWorker | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -42,10 +44,10 @@ class AIProvidersPage(QWidget):
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
 
-        title = QLabel("AI Orchestrator")
+        title = QLabel("AI Providers")
         title.setObjectName("PageTitle")
         subtitle = QLabel(
-            "Atlas routes specialized AIs per role. The LLM thinks. Forge draws. Atlas designs."
+            "Configure once in Settings. Production uses these bindings automatically."
         )
         subtitle.setWordWrap(True)
         layout.addWidget(title)
@@ -65,11 +67,15 @@ class AIProvidersPage(QWidget):
         self._deepseek_base = QLineEdit()
         hosts_form.addRow("Ollama host", self._ollama_host)
         ollama_row = QHBoxLayout()
-        test_ollama = QPushButton("Test Ollama")
-        test_ollama.clicked.connect(self._test_ollama)
-        ollama_row.addWidget(test_ollama)
+        self._test_ollama_btn = QPushButton("Test Connection")
+        self._test_ollama_btn.clicked.connect(self._test_ollama)
+        ollama_row.addWidget(self._test_ollama_btn)
         ollama_row.addStretch()
         hosts_form.addRow("", ollama_row)
+        self._ollama_status = QLabel("")
+        self._ollama_status.setObjectName("PageSubtitle")
+        self._ollama_status.setWordWrap(True)
+        hosts_form.addRow("Status", self._ollama_status)
         hosts_form.addRow("OpenAI API key", self._openai_key)
         hosts_form.addRow("OpenAI base URL", self._openai_base)
         hosts_form.addRow("Anthropic API key", self._anthropic_key)
@@ -126,10 +132,8 @@ class AIProvidersPage(QWidget):
         self.reload()
 
     def reload(self) -> None:
-        from PySide6.QtWidgets import QApplication
-
-        app = QApplication.instance()
-        if app is None or not hasattr(app, "config"):
+        app = self._app()
+        if app is None:
             return
         ai = app.config.ai
         self._ollama_host.setText(ai.ollama_host)
@@ -152,10 +156,8 @@ class AIProvidersPage(QWidget):
             fallback_model.setText(binding.fallback_model)
 
     def _save(self) -> None:
-        from PySide6.QtWidgets import QApplication
-
-        app = QApplication.instance()
-        if app is None or not hasattr(app, "config"):
+        app = self._app()
+        if app is None:
             return
         ai = app.config.ai
         ai.ollama_host = self._ollama_host.text().strip() or "http://127.0.0.1:11434"
@@ -181,20 +183,79 @@ class AIProvidersPage(QWidget):
         if img.provider:
             app.config.image_provider = img.provider
         app.config.save()
+        # Keep RuntimeManager / AIService endpoint in sync with the saved host.
+        try:
+            app.creative_workflow.set_ollama_endpoint(ai.ollama_host)
+        except Exception:  # noqa: BLE001
+            pass
         if hasattr(app, "rebuild_production_engine"):
             app.rebuild_production_engine()
         QMessageBox.information(self, "AI Orchestrator", "AI routing saved.")
 
     def _test_ollama(self) -> None:
-        host = self._ollama_host.text().strip() or "http://127.0.0.1:11434"
-        try:
-            models = discover_ollama_models(host)
-        except ProviderError as exc:
-            QMessageBox.warning(self, "Ollama", str(exc))
+        """Test Ollama via AIService → RuntimeManager.ensure_running (never direct HTTP)."""
+        if self._thread is not None and self._thread.isRunning():
             return
-        sample = ", ".join(models[:8]) if models else "(no models pulled)"
-        QMessageBox.information(
-            self,
-            "Ollama",
-            f"Connected to {host}\nModels: {sample}",
+        app = self._app()
+        if app is None:
+            return
+
+        host = self._ollama_host.text().strip() or "http://127.0.0.1:11434"
+        self._test_ollama_btn.setEnabled(False)
+        self._ollama_status.setText("Starting AI runtime…")
+
+        worker = OllamaConnectionWorker(
+            app.creative_workflow,
+            api_endpoint=host,
         )
+        # Unparented thread — owned by this page via strong refs until finished.
+        thread = QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_ollama_progress)
+        worker.finished.connect(self._on_ollama_finished)
+        worker.failed.connect(self._on_ollama_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(self._on_ollama_thread_finished)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._thread = thread
+        self._worker = worker
+        thread.start()
+
+    def _on_ollama_progress(self, message: str) -> None:
+        self._ollama_status.setText(message)
+
+    def _on_ollama_finished(self, result: object) -> None:
+        data = result if isinstance(result, dict) else {}
+        ok = bool(data.get("ok"))
+        status = str(data.get("status") or ("Connected" if ok else "Error"))
+        endpoint = str(data.get("endpoint") or "")
+        models = data.get("models") if isinstance(data.get("models"), list) else []
+        message = str(data.get("message") or status)
+
+        if ok:
+            sample = ", ".join(str(m) for m in models[:8]) if models else "(no models pulled)"
+            detail = f"Connected"
+            if endpoint:
+                detail += f" — {endpoint}"
+            detail += f"\nModels: {sample}"
+            self._ollama_status.setText(detail)
+            QMessageBox.information(self, "Ollama", f"Connected\n\n{detail}")
+        else:
+            self._ollama_status.setText(f"Error — {message}")
+            QMessageBox.warning(self, "Ollama", f"Error\n\n{message}")
+
+    def _on_ollama_failed(self, message: str) -> None:
+        self._ollama_status.setText(f"Error — {message}")
+        QMessageBox.warning(self, "Ollama", f"Error\n\n{message}")
+
+    def _on_ollama_thread_finished(self) -> None:
+        self._test_ollama_btn.setEnabled(True)
+        self._thread = None
+        self._worker = None
+
+    def _app(self) -> AtlasApplication | None:
+        instance = AtlasApplication.instance()
+        return instance if isinstance(instance, AtlasApplication) else None

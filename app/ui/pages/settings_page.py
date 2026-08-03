@@ -41,7 +41,8 @@ from app.providers.kokoro import (
 from app.providers.local_voice import LOCAL_VOICE_PROVIDER_ID
 from app.render.ffmpeg import FFmpegProcess
 from app.ui.dialogs.about_dialog import AboutDialog
-from app.ui.settings.cards.thumbnail_studio_card import ThumbnailStudioCard
+# TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
+# from app.ui.settings.cards.thumbnail_studio_card import ThumbnailStudioCard
 from app.ui.voice_health_display import (
     VoiceHealthDisplay,
     display_from_kokoro_health,
@@ -63,9 +64,11 @@ class SettingsPage(QWidget):
         title.setObjectName("PageTitle")
 
         subtitle = QLabel(
-            "Configure library location, AI text, image, voice, movie, and thumbnail style."
+            "Application settings only — Project Root, language of the app, and developer tools.\n"
+            "Voice, AI, image style, and movie defaults live on each Channel."
         )
         subtitle.setObjectName("PageSubtitle")
+        subtitle.setWordWrap(True)
 
         root_label = QLabel("Project Root")
         root_label.setObjectName("SectionLabel")
@@ -296,13 +299,22 @@ class SettingsPage(QWidget):
         movie_form.addRow("Transition", self._movie_transition)
         movie_form.addRow("Scene Animation", self._movie_motion)
         movie_form.addRow("Default Duration (sec/image)", self._movie_duration)
-        movie_form.addRow("Custom Width", self._movie_width)
-        movie_form.addRow("Custom Height", self._movie_height)
-        movie_form.addRow("FPS", self._movie_fps)
-        movie_form.addRow("Codec", self._movie_codec)
-        movie_form.addRow("Quality Preset", self._movie_preset)
-        movie_form.addRow("CRF", self._movie_crf)
-        movie_form.addRow("Keep Scene Renders", self._movie_keep_scenes)
+
+        # Advanced movie encoding — hidden by default toggle.
+        self._movie_advanced_host = QWidget()
+        movie_advanced = QFormLayout(self._movie_advanced_host)
+        movie_advanced.setContentsMargins(0, 0, 0, 0)
+        movie_advanced.addRow("Custom Width", self._movie_width)
+        movie_advanced.addRow("Custom Height", self._movie_height)
+        movie_advanced.addRow("FPS", self._movie_fps)
+        movie_advanced.addRow("Codec", self._movie_codec)
+        movie_advanced.addRow("Quality Preset", self._movie_preset)
+        movie_advanced.addRow("CRF", self._movie_crf)
+        movie_advanced.addRow("Keep Scene Renders", self._movie_keep_scenes)
+        self._movie_advanced_host.hide()
+
+        self._movie_advanced_toggle = QCheckBox("Show advanced movie options")
+        self._movie_advanced_toggle.toggled.connect(self._movie_advanced_host.setVisible)
 
         test_movie = QPushButton("Test FFmpeg")
         test_movie.clicked.connect(self._test_ffmpeg)
@@ -314,7 +326,30 @@ class SettingsPage(QWidget):
         movie_actions.addWidget(save_movie)
         movie_actions.addStretch()
 
-        self._thumbnail_style = ThumbnailStudioCard()
+        self._thumbnail_style = None
+        # TODO V3.1
+        # Restore Thumbnail Generator after new AI workflow.
+        # from app.ui.settings.cards.thumbnail_studio_card import ThumbnailStudioCard
+        # self._thumbnail_style = ThumbnailStudioCard()
+
+        developer_label = QLabel("Advanced")
+        developer_label.setObjectName("SectionLabel")
+        advanced_hint = QLabel(
+            "Occasional options — leave defaults unless you need them."
+        )
+        advanced_hint.setObjectName("PageSubtitle")
+        advanced_hint.setWordWrap(True)
+        self._developer_mode = QCheckBox("Developer Mode")
+        self._developer_mode.setToolTip(
+            "When enabled, Atlas shows the startup timeline after launch "
+            "and writes detailed profiles to logs/."
+        )
+        self._developer_mode.toggled.connect(self._on_developer_mode_toggled)
+        view_timeline = QPushButton("View Startup Timeline")
+        view_timeline.clicked.connect(self._view_startup_timeline)
+        developer_actions = QHBoxLayout()
+        developer_actions.addWidget(view_timeline)
+        developer_actions.addStretch()
 
         about_button = QPushButton("About Atlas Studio")
         about_button.clicked.connect(self.open_about)
@@ -323,7 +358,19 @@ class SettingsPage(QWidget):
         self._status.setObjectName("PageSubtitle")
         self._status.setWordWrap(True)
         self._voice_library.status_message.connect(self._status.setText)
-        self._thumbnail_style.status_message.connect(self._status.setText)
+
+        # AI Providers live in Settings only (disconnected from sidebar).
+        from app.ui.pages.ai_providers_page import AIProvidersPage
+
+        ai_roles_label = QLabel("AI Providers & Roles")
+        ai_roles_label.setObjectName("SectionLabel")
+        ai_roles_hint = QLabel(
+            "Configure providers once. The production workflow uses them automatically — "
+            "no model choices during Generate."
+        )
+        ai_roles_hint.setObjectName("PageSubtitle")
+        ai_roles_hint.setWordWrap(True)
+        self._ai_providers = AIProvidersPage()
 
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -336,34 +383,69 @@ class SettingsPage(QWidget):
         layout.addLayout(root_row)
         layout.addWidget(save_root_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addSpacing(20)
-        layout.addWidget(ai_label)
-        layout.addWidget(self._provider)
-        layout.addWidget(key_label)
-        layout.addWidget(self._api_key)
-        layout.addWidget(model_label)
-        layout.addWidget(self._model)
-        layout.addLayout(ai_actions)
+
+        # Channel-owned production config moved to Channel Settings.
+        # Keep machine connections / API keys as application fallbacks.
+        fallbacks_toggle = QCheckBox(
+            "Show application connections (API keys, Forge, Voice library)"
+        )
+        fallbacks_hint = QLabel(
+            "Per-channel voice, AI model, and image style are edited under "
+            "Channels → Channel Settings. These fields are machine-level fallbacks."
+        )
+        fallbacks_hint.setObjectName("PageSubtitle")
+        fallbacks_hint.setWordWrap(True)
+
+        self._fallbacks_host = QWidget()
+        fallbacks = QVBoxLayout(self._fallbacks_host)
+        fallbacks.setContentsMargins(0, 0, 0, 0)
+        fallbacks.setSpacing(12)
+        fallbacks.addWidget(ai_label)
+        fallbacks.addWidget(self._provider)
+        fallbacks.addWidget(key_label)
+        fallbacks.addWidget(self._api_key)
+        fallbacks.addWidget(model_label)
+        fallbacks.addWidget(self._model)
+        fallbacks.addLayout(ai_actions)
+        fallbacks.addSpacing(12)
+        fallbacks.addWidget(ai_roles_label)
+        fallbacks.addWidget(ai_roles_hint)
+        fallbacks.addWidget(self._ai_providers)
+        fallbacks.addSpacing(12)
+        fallbacks.addWidget(image_label)
+        fallbacks.addWidget(self._image_provider)
+        fallbacks.addLayout(forge_form)
+        fallbacks.addLayout(forge_actions)
+        fallbacks.addSpacing(12)
+        fallbacks.addWidget(voice_label)
+        fallbacks.addWidget(self._voice_provider)
+        fallbacks.addWidget(health_panel)
+        fallbacks.addLayout(self._voice_health_actions)
+        fallbacks.addWidget(self._voice_hint)
+        fallbacks.addWidget(library_label)
+        fallbacks.addWidget(self._voice_library)
+        fallbacks.addLayout(voice_form)
+        fallbacks.addLayout(voice_actions)
+        fallbacks.addSpacing(12)
+        fallbacks.addWidget(movie_label)
+        fallbacks.addLayout(movie_form)
+        fallbacks.addWidget(self._movie_advanced_toggle)
+        fallbacks.addWidget(self._movie_advanced_host)
+        fallbacks.addLayout(movie_actions)
+        self._fallbacks_host.hide()
+        fallbacks_toggle.toggled.connect(self._fallbacks_host.setVisible)
+
+        layout.addWidget(fallbacks_toggle)
+        layout.addWidget(fallbacks_hint)
+        layout.addWidget(self._fallbacks_host)
         layout.addSpacing(20)
-        layout.addWidget(image_label)
-        layout.addWidget(self._image_provider)
-        layout.addLayout(forge_form)
-        layout.addLayout(forge_actions)
-        layout.addSpacing(20)
-        layout.addWidget(voice_label)
-        layout.addWidget(self._voice_provider)
-        layout.addWidget(health_panel)
-        layout.addLayout(self._voice_health_actions)
-        layout.addWidget(self._voice_hint)
-        layout.addWidget(library_label)
-        layout.addWidget(self._voice_library)
-        layout.addLayout(voice_form)
-        layout.addLayout(voice_actions)
-        layout.addSpacing(20)
-        layout.addWidget(movie_label)
-        layout.addLayout(movie_form)
-        layout.addLayout(movie_actions)
-        layout.addSpacing(20)
-        layout.addWidget(self._thumbnail_style)
+        # TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
+        # layout.addWidget(self._thumbnail_style)
+        # layout.addSpacing(20)
+        layout.addWidget(developer_label)
+        layout.addWidget(advanced_hint)
+        layout.addWidget(self._developer_mode)
+        layout.addLayout(developer_actions)
         layout.addSpacing(24)
         layout.addWidget(about_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._status)
@@ -381,10 +463,34 @@ class SettingsPage(QWidget):
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         self._load_current()
-        self._thumbnail_style.refresh()
+        # TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
+        if self._thumbnail_style is not None:
+            self._thumbnail_style.refresh()
 
     def open_about(self) -> None:
         AboutDialog(self).exec()
+
+    def _on_developer_mode_toggled(self, checked: bool) -> None:
+        app = self._app()
+        if app is None:
+            return
+        app.config.developer_mode = bool(checked)
+        try:
+            app.config.save()
+            self._status.setText(
+                "Developer Mode on — startup timeline will open after next launch."
+                if checked
+                else "Developer Mode off."
+            )
+        except OSError as exc:
+            self._status.setText(f"Could not save Developer Mode: {exc}")
+
+    def _view_startup_timeline(self) -> None:
+        from app.ui.dialogs.startup_timeline_dialog import StartupTimelineDialog
+
+        app = self._app()
+        profile = app.startup_profile if app is not None else None
+        StartupTimelineDialog(profile, parent=self).exec()
 
     def _app(self) -> AtlasApplication | None:
         instance = AtlasApplication.instance()
@@ -430,6 +536,10 @@ class SettingsPage(QWidget):
         self._forge_launch_path.setText(forge.launch_path)
         self._forge_auto_start.setChecked(bool(forge.auto_start_forge))
         self._forge_close_on_exit.setChecked(bool(forge.close_forge_on_exit))
+
+        self._developer_mode.blockSignals(True)
+        self._developer_mode.setChecked(bool(app.config.developer_mode))
+        self._developer_mode.blockSignals(False)
 
         voice_provider = app.config.voice_provider or KOKORO_PROVIDER_ID
         if voice_provider.casefold() in {LOCAL_VOICE_PROVIDER_ID, "kokoro"}:
@@ -592,10 +702,12 @@ class SettingsPage(QWidget):
 
     def focus_forge_section(self) -> None:
         """Bring the Image Provider / Forge section into view."""
+        host = getattr(self, "_fallbacks_host", None)
+        if host is not None:
+            host.show()
         anchor = getattr(self, "_forge_section_anchor", None)
         if anchor is not None:
             anchor.setFocus(Qt.FocusReason.OtherFocusReason)
-            # Scroll parent QScrollArea if present.
             parent = anchor.parentWidget()
             while parent is not None:
                 if isinstance(parent, QScrollArea):

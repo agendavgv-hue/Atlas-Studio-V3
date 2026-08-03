@@ -13,7 +13,8 @@ from app.projects.models import Project
 class ChannelDefaults:
     """Read-only channel settings available to pipelines.
 
-    Pipelines may read these values. They must never write channel configuration.
+    Prefer the project's frozen ``channel_snapshot`` when present so later
+    channel edits do not change in-flight productions.
     """
 
     name: str = ""
@@ -24,6 +25,10 @@ class ChannelDefaults:
     voice: dict[str, Any] = field(default_factory=dict)
     movie: dict[str, Any] = field(default_factory=dict)
     seo: dict[str, Any] = field(default_factory=dict)
+    ai_provider: str = ""
+    ai_model: str = ""
+    resolution: str = ""
+    output_folder: str = ""
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any], *, name: str = "") -> ChannelDefaults:
@@ -36,7 +41,15 @@ class ChannelDefaults:
             voice=dict(data.get("voice") or {}),
             movie=dict(data.get("movie") or {}),
             seo=dict(data.get("seo") or {}),
+            ai_provider=str(data.get("ai_provider") or ""),
+            ai_model=str(data.get("ai_model") or ""),
+            resolution=str(data.get("resolution") or ""),
+            output_folder=str(data.get("output_folder") or ""),
         )
+
+    @classmethod
+    def from_profile(cls, profile) -> ChannelDefaults:
+        return cls.from_mapping(profile.to_channel_defaults_mapping())
 
 
 @dataclass(frozen=True)

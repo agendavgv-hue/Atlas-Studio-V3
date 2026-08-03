@@ -32,6 +32,8 @@ class ProjectService:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
         self._active: ActiveProject | None = None
+        self._list_cache: dict[str, tuple[float, list[Project]]] = {}
+        self._list_cache_ttl_s = 2.0
 
     @property
     def active_project(self) -> ActiveProject | None:
@@ -41,6 +43,13 @@ class ProjectService:
     def project_root(self):
         return self._config.project_root
 
+    def invalidate_list_cache(self, channel_name: str | None = None) -> None:
+        """Drop cached project listings (call after create/delete/rename)."""
+        if channel_name is None:
+            self._list_cache.clear()
+            return
+        self._list_cache.pop(channel_name.strip(), None)
+
     def _paths(self, channel_name: str) -> ProjectPaths:
         channel = channel_name.strip()
         if not channel:
@@ -49,6 +58,14 @@ class ProjectService:
         return ProjectPaths(root, channel)
 
     def list_projects(self, channel_name: str) -> list[Project]:
+        import time
+
+        key = channel_name.strip()
+        cached = self._list_cache.get(key)
+        now = time.monotonic()
+        if cached is not None and (now - cached[0]) < self._list_cache_ttl_s:
+            return list(cached[1])
+
         try:
             paths = self._paths(channel_name)
         except ProjectRootError:
@@ -63,6 +80,7 @@ class ProjectService:
             project_dir = paths.project_dir(name)
             ensure_project_template(project_dir)
             projects.append(store.ensure_default(name))
+        self._list_cache[key] = (now, list(projects))
         return projects
 
     def get_project(self, channel_name: str, name: str) -> Project:
@@ -79,6 +97,8 @@ class ProjectService:
         channel_name: str,
         name: str,
         idea: str = "",
+        *,
+        channel_snapshot: dict | None = None,
     ) -> Project:
         title = self._validate_name(name)
         paths = self._paths(channel_name)
@@ -107,7 +127,27 @@ class ProjectService:
             channel_name=paths.channel_name,
             idea=idea.strip(),
         )
+        if channel_snapshot:
+            project.channel_snapshot = dict(channel_snapshot)
         store.save(project)
+        self.invalidate_list_cache(channel_name)
+        return project
+
+    def ensure_channel_snapshot(
+        self,
+        channel_name: str,
+        folder_name: str,
+        snapshot: dict,
+    ) -> Project:
+        """Freeze channel defaults onto an older project that has no snapshot yet."""
+        paths = self._paths(channel_name)
+        store = ProjectStore(paths)
+        project = store.ensure_default(folder_name.strip())
+        if project.channel_snapshot:
+            return project
+        project.channel_snapshot = dict(snapshot or {})
+        store.save(project)
+        self.invalidate_list_cache(channel_name)
         return project
 
     def open_project(self, channel_name: str, name: str) -> Project:
@@ -117,6 +157,10 @@ class ProjectService:
             folder_name=project.folder_name,
         )
         return project
+
+    def project_dir(self, channel_name: str, folder_name: str):
+        """Return the on-disk folder for a project."""
+        return self._paths(channel_name).project_dir(folder_name.strip())
 
     def get_progress(self, channel_name: str, name: str) -> ProjectProgress:
         paths = self._paths(channel_name)
@@ -147,6 +191,7 @@ class ProjectService:
         if not project_dir.exists():
             raise FileNotFoundError(f"Project folder not found: {folder}")
         shutil.rmtree(project_dir)
+        self.invalidate_list_cache(channel_name)
         if (
             self._active is not None
             and self._active.channel_name == paths.channel_name
@@ -175,6 +220,7 @@ class ProjectService:
         project.name = new_folder
         project.folder_name = new_folder
         ProjectStore(paths).save(project)
+        self.invalidate_list_cache(channel_name)
 
         if (
             self._active is not None

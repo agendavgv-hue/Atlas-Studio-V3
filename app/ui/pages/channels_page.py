@@ -30,12 +30,14 @@ from app.providers.kokoro import KOKORO_PROVIDER_ID, KokoroProvider
 from app.providers.voice_base import VoiceInfo
 from app.providers.voice_metadata import select_closest_voice
 from app.ui.dialogs.ai_channel_creator_dialog import AIChannelCreatorDialog
+from app.ui.dialogs.channel_setup_wizard import ChannelSetupWizard
 from app.ui.widgets.empty_state import EmptyState
 from app.ui.widgets.voice_library import VoiceLibraryWidget
 
 
 class ChannelsPage(QWidget):
     channel_studio_requested = Signal(str)
+    channel_dashboard_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -51,24 +53,27 @@ class ChannelsPage(QWidget):
         self._list = QListWidget()
         self._list.setObjectName("ChannelList")
         self._list.itemSelectionChanged.connect(self._on_selection_changed)
-        self._list.itemDoubleClicked.connect(self._open_channel_studio)
+        self._list.itemDoubleClicked.connect(self._open_channel_dashboard)
 
         self._empty = EmptyState()
 
         self._name_input = QLineEdit()
-        self._name_input.setPlaceholderText("New channel name")
+        self._name_input.setPlaceholderText("Quick name (or use New Channel wizard)")
         self._name_input.returnPressed.connect(self._create_channel)
 
-        create_button = QPushButton("Create Channel")
+        create_button = QPushButton("New Channel")
         create_button.setObjectName("PrimaryButton")
-        create_button.clicked.connect(self._create_channel)
+        create_button.clicked.connect(self._open_channel_setup_wizard)
 
         ai_create_button = QPushButton("AI Channel Creator")
         ai_create_button.clicked.connect(self._open_ai_channel_creator)
 
-        studio_button = QPushButton("Open Channel Studio")
+        studio_button = QPushButton("Open Channel")
         studio_button.setObjectName("PrimaryButton")
-        studio_button.clicked.connect(self._open_channel_studio)
+        studio_button.clicked.connect(self._open_channel_dashboard)
+
+        settings_button = QPushButton("Channel Settings")
+        settings_button.clicked.connect(self._open_channel_settings_via_dashboard)
 
         refresh_button = QPushButton("Refresh")
         refresh_button.clicked.connect(self.refresh)
@@ -78,6 +83,7 @@ class ChannelsPage(QWidget):
         create_row.addWidget(create_button)
         create_row.addWidget(ai_create_button)
         create_row.addWidget(studio_button)
+        create_row.addWidget(settings_button)
         create_row.addWidget(refresh_button)
 
         self._voice_title = QLabel("Channel Narrator")
@@ -241,6 +247,38 @@ class ChannelsPage(QWidget):
         else:
             self._status.setText("Select a channel to edit its narrator.")
 
+    def _open_channel_dashboard(self, *_args) -> None:
+        folder = self._current_folder
+        if not folder:
+            items = self._list.selectedItems()
+            if items:
+                folder = str(items[0].data(Qt.ItemDataRole.UserRole) or "")
+        if not folder:
+            QMessageBox.information(
+                self,
+                "Channels",
+                "Select a channel first.",
+            )
+            return
+        self.channel_dashboard_requested.emit(folder)
+
+    def _open_channel_settings_via_dashboard(self) -> None:
+        # Open dashboard then settings is handled by MainWindow from dashboard;
+        # shortcut: emit dashboard then settings via selecting folder.
+        folder = self._current_folder
+        if not folder:
+            items = self._list.selectedItems()
+            if items:
+                folder = str(items[0].data(Qt.ItemDataRole.UserRole) or "")
+        if not folder:
+            QMessageBox.information(self, "Channels", "Select a channel first.")
+            return
+        self.channel_dashboard_requested.emit(folder)
+        window = self.window()
+        open_settings = getattr(window, "_open_channel_settings", None)
+        if callable(open_settings):
+            open_settings(folder)
+
     def _open_channel_studio(self, *_args) -> None:
         folder = self._current_folder
         if not folder:
@@ -256,13 +294,32 @@ class ChannelsPage(QWidget):
             return
         self.channel_studio_requested.emit(folder)
 
+    def _open_channel_setup_wizard(self) -> None:
+        app = self._app()
+        if app is None:
+            return
+        if not is_project_root_configured(app.config.project_root):
+            QMessageBox.warning(
+                self,
+                "New Channel",
+                "Set Project Root in Settings before creating a channel.",
+            )
+            return
+        dialog = ChannelSetupWizard(self)
+        if dialog.exec():
+            self.refresh()
+            created = dialog.created_channel()
+            if created is not None:
+                self.channel_dashboard_requested.emit(created.folder_name)
+
     def _create_channel(self) -> None:
+        """Quick-create from the name field (wizard is preferred)."""
         app = self._app()
         if app is None:
             return
         name = self._name_input.text().strip()
         if not name:
-            QMessageBox.warning(self, "Atlas Studio", "Enter a channel name.")
+            self._open_channel_setup_wizard()
             return
         try:
             channel = app.channels.create_channel(name)

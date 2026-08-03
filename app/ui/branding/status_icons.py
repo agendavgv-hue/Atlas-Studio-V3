@@ -13,7 +13,7 @@ COLOR_RING = QColor("#2C333D")
 
 
 def status_icon_pixmap(state: str, size: int = 18) -> QPixmap:
-    """Draw a crisp status icon: complete | missing | running."""
+    """Draw a crisp status icon: complete | not_started | failed | running."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -21,15 +21,27 @@ def status_icon_pixmap(state: str, size: int = 18) -> QPixmap:
 
     margin = 1.5
     rect_size = size - margin * 2
-    if state == "complete":
+    key = (state or "").strip().casefold()
+    if key in {"complete", "completed"}:
         _draw_complete(painter, margin, rect_size)
-    elif state == "running":
+    elif key in {"running", "in_progress"}:
         _draw_running(painter, margin, rect_size, size)
-    else:
+    elif key in {"failed", "missing", "error"}:
         _draw_missing(painter, margin, rect_size, size)
+    else:
+        _draw_not_started(painter, margin, rect_size)
 
     painter.end()
     return pixmap
+
+
+def _draw_not_started(painter: QPainter, margin: float, rect_size: float) -> None:
+    """Empty ring — stage not started yet."""
+    pen = QPen(COLOR_RING)
+    pen.setWidthF(max(1.6, rect_size * 0.12))
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawEllipse(int(margin + 1), int(margin + 1), int(rect_size - 2), int(rect_size - 2))
 
 
 def _draw_complete(painter: QPainter, margin: float, rect_size: float) -> None:
