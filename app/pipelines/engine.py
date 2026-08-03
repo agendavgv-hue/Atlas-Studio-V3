@@ -219,6 +219,7 @@ class ProductionEngine:
 
             pipeline._set_state(PipelineState.RUNNING)
             pipeline._set_progress(0.0, "Running")
+            self._mark_assets_started(pipeline, context)
 
             try:
                 result = pipeline.run(context)
@@ -242,6 +243,7 @@ class ProductionEngine:
 
             if result.ok:
                 self._refresh_intelligence(context)
+            self._record_assets(pipeline, context, result)
 
             return result
         finally:
@@ -525,6 +527,35 @@ class ProductionEngine:
             context.channel_name,
             context.project_name,
         )
+
+    def _mark_assets_started(
+        self,
+        pipeline: Pipeline,
+        context: PipelineContext,
+    ) -> None:
+        try:
+            from app.projects.assets.registry import AssetRegistry
+
+            AssetRegistry(context.project_dir).mark_pipeline_started(pipeline.pipeline_id)
+        except Exception:  # noqa: BLE001
+            return
+
+    def _record_assets(
+        self,
+        pipeline: Pipeline,
+        context: PipelineContext,
+        result: PipelineResult,
+    ) -> None:
+        """Persist production asset status — pipeline updates assets, not folders."""
+        try:
+            from app.projects.assets.registry import AssetRegistry
+
+            AssetRegistry(context.project_dir).record_pipeline_result(
+                pipeline.pipeline_id,
+                result,
+            )
+        except Exception:  # noqa: BLE001
+            return
 
     @staticmethod
     def _resolve_topic(context: PipelineContext, topic: str | None) -> str:
