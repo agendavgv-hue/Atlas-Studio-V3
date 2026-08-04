@@ -10,7 +10,10 @@ from app.core.storage_paths import StoragePaths
 
 def build_storage(default_root: Path | None = None) -> Storage:
     """Load config, create storage, and ensure the managed layout exists."""
+    from app.core.ai_storage import apply_ai_storage_environment
+
     config = AppConfig.load(default_root=default_root)
+    apply_ai_storage_environment(config.ai_models_root)
     storage = Storage(config)
     storage.ensure_structure()
     return storage
@@ -80,8 +83,8 @@ class Storage:
         self.root.mkdir(parents=True, exist_ok=True)
         for directory in self._paths.all_directories():
             directory.mkdir(parents=True, exist_ok=True)
-        # Piper (and future local packs) discover models under voices/<provider>/.
-        (self._paths.voices / "piper").mkdir(parents=True, exist_ok=True)
+        # Chatterbox (and future local packs) discover clips under voices/<provider>/.
+        (self._paths.voices / "chatterbox").mkdir(parents=True, exist_ok=True)
 
     def set_data_root(self, path: Path) -> None:
         """Update, persist, and ensure the storage layout at a new root."""

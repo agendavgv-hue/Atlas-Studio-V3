@@ -1,5 +1,5 @@
 # Kokoro ONNX — default local VoiceProvider for Atlas Studio V3 (Python 3.10–3.13).
-# Piper — optional second local VoiceProvider (folder scan of voices/piper/*.onnx).
+# Chatterbox — optional second local VoiceProvider (Resemble AI, zero-shot cloning).
 #
 # Install into the same Python environment that runs Atlas Studio:
 #   pip install -r requirements-voice-local.txt
@@ -9,14 +9,15 @@
 #   (hexgrad `kokoro` currently requires Python <3.13).
 # - First ready-check downloads Kokoro model files (~80–300MB) into
 #   <data_root>/Cache/kokoro/ unless already present.
-# - Piper models are NOT downloaded automatically — place *.onnx (+ optional
-#   *.onnx.json) under <data_root>/voices/piper/.
-# - espeak-ng may be required on PATH for some phonemization paths.
+# - Chatterbox downloads model weights from Hugging Face on first use.
+#   Optional reference clips (wav/mp3) can be placed under
+#   <data_root>/voices/chatterbox/ for cloning.
+# - espeak-ng may be required on PATH for some Kokoro phonemization paths.
 # - Official hexgrad `kokoro` can replace this provider later without
 #   changing the Voice Pipeline.
 
 kokoro-onnx>=0.4.0
-piper-tts>=1.2.0
+chatterbox-tts>=0.1.0
 onnxruntime>=1.20.1
 numpy
 soundfile

@@ -69,23 +69,33 @@ class VoiceRegistryKokoroTests(unittest.TestCase):
         self.assertNotIn("kokoro", svc_text.casefold())
         self.assertNotIn("piper", gen_text.casefold())
         self.assertNotIn("piper", svc_text.casefold())
+        self.assertNotIn("chatterbox", gen_text.casefold())
+        self.assertNotIn("chatterbox", svc_text.casefold())
         self.assertNotIn("KokoroProvider", gen_text)
         self.assertNotIn("KokoroProvider", svc_text)
         self.assertNotIn("PiperVoiceProvider", gen_text)
         self.assertNotIn("PiperVoiceProvider", svc_text)
+        self.assertNotIn("ChatterboxVoiceProvider", gen_text)
+        self.assertNotIn("ChatterboxVoiceProvider", svc_text)
 
-    def test_explicit_piper_id(self) -> None:
-        from app.providers.piper import PiperVoiceProvider
+    def test_explicit_chatterbox_id(self) -> None:
+        from app.providers.chatterbox import ChatterboxVoiceProvider
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "voices" / "piper").mkdir(parents=True)
+            (root / "voices" / "chatterbox").mkdir(parents=True)
             config = AppConfig(data_root=root)
             provider = VoiceProviderRegistry(config).require_voice_provider(
-                provider_id="piper"
+                provider_id="chatterbox"
             )
-            self.assertIsInstance(provider, PiperVoiceProvider)
-            self.assertEqual(provider.provider_id, "piper")
+            self.assertIsInstance(provider, ChatterboxVoiceProvider)
+            self.assertEqual(provider.provider_id, "chatterbox")
+
+    def test_legacy_piper_id_fails_with_migration_message(self) -> None:
+        config = AppConfig(data_root=Path("."))
+        with self.assertRaises(ProviderConfigurationError) as ctx:
+            VoiceProviderRegistry(config).require_voice_provider(provider_id="piper")
+        self.assertIn("Chatterbox", str(ctx.exception))
 
     def test_missing_kokoro_runtime_fails_cleanly(self) -> None:
         config = AppConfig(data_root=Path("."))

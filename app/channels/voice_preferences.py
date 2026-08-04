@@ -24,6 +24,8 @@ class ChannelVoicePreferences:
     language: str = "en-US"
     gender: str = ""
     style_tags: list[str] = field(default_factory=list)
+    # Optional Chatterbox zero-shot clone clip (channel-relative or absolute).
+    reference_voice: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -52,6 +54,9 @@ class ChannelVoicePreferences:
             language=str(raw.get("language") or "en-US").strip() or "en-US",
             gender=str(raw.get("gender") or "").strip(),
             style_tags=style_tags,
+            reference_voice=str(
+                raw.get("reference_voice") or raw.get("reference_audio_path") or ""
+            ).strip(),
         )
 
     def is_empty(self) -> bool:
@@ -60,6 +65,7 @@ class ChannelVoicePreferences:
             or self.voice_id
             or self.gender
             or self.style_tags
+            or self.reference_voice
         )
 
     def apply_to_settings(self, base: VoiceSettings) -> VoiceSettings:
@@ -75,6 +81,8 @@ class ChannelVoicePreferences:
             speed=self.speed if self.speed > 0 else base.speed,
             similarity=base.similarity,
             output_format=base.output_format,
+            reference_audio_path=self.reference_voice
+            or base.reference_audio_path,
         )
 
     def bind_voice(self, voice: VoiceInfo) -> None:
@@ -87,34 +95,8 @@ class ChannelVoicePreferences:
 
 
 # Suggested channel profiles — defaults only; users may override.
-CHANNEL_VOICE_PROFILES: dict[str, ChannelVoicePreferences] = {
-    "Hollow Atlas": ChannelVoicePreferences(
-        provider="kokoro",
-        gender="Male",
-        language="en-US",
-        speed=1.0,
-        style_tags=[
-            "Deep",
-            "Calm",
-            "Documentary",
-            "Authoritative",
-            "Cinematic",
-        ],
-    ),
-    "Mirror Drift": ChannelVoicePreferences(
-        provider="kokoro",
-        gender="Male",
-        language="en-US",
-        speed=1.05,
-        style_tags=[
-            "Energetic",
-            "Modern",
-            "Confident",
-            "Technology",
-            "Engaging",
-        ],
-    ),
-}
+# Kept empty so Atlas never hardcodes channel-name behaviour.
+CHANNEL_VOICE_PROFILES: dict[str, ChannelVoicePreferences] = {}
 
 
 def profile_for_channel(channel_name: str) -> ChannelVoicePreferences | None:

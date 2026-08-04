@@ -88,6 +88,9 @@ class VoiceGenerator:
             speed=float(manifest.speed or 0.0),
             similarity=float(manifest.similarity or 0.0),
             output_format=output_format,
+            reference_audio_path=str(
+                (manifest.extras or {}).get("reference_audio_path") or ""
+            ),
         )
 
     @staticmethod

@@ -195,7 +195,7 @@ class VoiceService:
 
     def _build_manifest(self, plan: VoicePlan) -> VoiceManifest:
         settings = self._settings
-        return VoiceManifest.from_plan(
+        manifest = VoiceManifest.from_plan(
             plan,
             provider_id=self._provider.provider_id,
             voice_id=str(settings.voice_id or ""),
@@ -207,6 +207,15 @@ class VoiceService:
             style=float(settings.style or 0.0),
             similarity=float(settings.similarity or 0.0),
         )
+        # Prefer settings language when the planner left a blank locale.
+        if settings.language and not (manifest.language or "").strip():
+            manifest.language = str(settings.language)
+        elif settings.language:
+            manifest.language = str(settings.language)
+        reference = str(getattr(settings, "reference_audio_path", "") or "").strip()
+        if reference:
+            manifest.extras["reference_audio_path"] = reference
+        return manifest
 
     def _should_cancel(self) -> bool:
         return self._cancel_check is not None and self._cancel_check()

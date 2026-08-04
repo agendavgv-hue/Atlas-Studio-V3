@@ -103,10 +103,12 @@ class AtlasApplication(QApplication):
 
         step("Storage")
         with profiler.stage("configuration_loading"):
+            from app.core.ai_storage import apply_ai_storage_environment
             from app.core.storage import build_storage
 
             self.storage = build_storage()
             self.config = self.storage.config
+            apply_ai_storage_environment(self.config.ai_models_root)
 
         # Atlas AI / plugin / runtime stacks are intentionally not started here.
         profiler.skip(

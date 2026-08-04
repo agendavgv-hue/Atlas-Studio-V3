@@ -279,9 +279,9 @@ class VoiceLibraryWidget(QWidget):
             return
         voice_id = (voice.voice_id or "").strip()
         if not voice_id:
-            # Same provider-facing message Piper raises for Generate Voice.
-            if (self._provider.provider_id or "").casefold() == "piper":
-                self.status_message.emit("No Piper voice selected.")
+            # Same provider-facing empty-selection message as Generate Voice.
+            if (self._provider.provider_id or "").casefold() == "chatterbox":
+                self.status_message.emit("No Chatterbox voice selected.")
             else:
                 self.status_message.emit("No voice selected.")
             return
@@ -303,6 +303,12 @@ class VoiceLibraryWidget(QWidget):
                 ),
             )
         except ProviderError as exc:
+            from app.ui.dialogs.chatterbox_model_dialog import (
+                offer_chatterbox_download_for_error,
+            )
+
+            if offer_chatterbox_download_for_error(self, exc):
+                return self._preview(voice)
             self.status_message.emit(str(exc))
             return
         except Exception as exc:  # noqa: BLE001

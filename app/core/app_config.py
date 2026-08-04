@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths
 
+from app.core.ai_storage import default_ai_models_root
 from app.core.forge_settings import ForgeSettings
 from app.core.movie_settings import MovieSettings
 from app.core.voice_settings import VoiceSettings
@@ -38,6 +39,7 @@ class AppConfig:
 
     data_root: Path
     project_root: Path | None = None
+    ai_models_root: Path = field(default_factory=default_ai_models_root)
     text_provider: str | None = None
     gemini_api_key: str = ""
     gemini_model: str = ""
@@ -47,6 +49,7 @@ class AppConfig:
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     movie: MovieSettings = field(default_factory=MovieSettings)
     ai: AIOrchestratorSettings = field(default_factory=AIOrchestratorSettings.defaults)
+    developer_mode: bool = False
 
     @classmethod
     def load(cls, default_root: Path | None = None) -> AppConfig:
@@ -71,6 +74,12 @@ class AppConfig:
         project_root: Path | None = None
         if project_raw and isinstance(project_raw, str):
             project_root = Path(project_raw).expanduser().resolve()
+
+        models_raw = raw.get("ai_models_root")
+        if models_raw and isinstance(models_raw, str) and models_raw.strip():
+            ai_models_root = Path(models_raw).expanduser().resolve()
+        else:
+            ai_models_root = default_ai_models_root()
 
         text_provider = raw.get("text_provider")
         if text_provider is not None and not isinstance(text_provider, str):
@@ -106,9 +115,12 @@ class AppConfig:
         ai_raw = raw.get("ai")
         ai = AIOrchestratorSettings.from_mapping(ai_raw if isinstance(ai_raw, dict) else None)
 
+        developer_mode = bool(raw.get("developer_mode", False))
+
         return cls(
             data_root=data_root,
             project_root=project_root,
+            ai_models_root=ai_models_root,
             text_provider=text_provider,
             gemini_api_key=gemini_api_key,
             gemini_model=gemini_model,
@@ -118,6 +130,7 @@ class AppConfig:
             voice=voice,
             movie=movie,
             ai=ai,
+            developer_mode=developer_mode,
         )
 
     def save(self) -> None:
@@ -128,6 +141,7 @@ class AppConfig:
             "project_root": (
                 str(self.project_root.resolve()) if self.project_root is not None else None
             ),
+            "ai_models_root": str(self.ai_models_root.resolve()),
             "text_provider": self.text_provider,
             "gemini_api_key": self.gemini_api_key,
             "gemini_model": self.gemini_model,
@@ -137,5 +151,6 @@ class AppConfig:
             "voice": self.voice.to_dict(),
             "movie": self.movie.to_dict(),
             "ai": self.ai.to_dict(),
+            "developer_mode": bool(self.developer_mode),
         }
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

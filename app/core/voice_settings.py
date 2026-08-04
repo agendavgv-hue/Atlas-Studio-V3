@@ -24,6 +24,8 @@ class VoiceSettings:
     speed: float = 1.0
     similarity: float = 0.75
     output_format: str = "wav"
+    # Optional zero-shot clone clip path (Chatterbox). Ignored by Kokoro/cloud.
+    reference_audio_path: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -32,13 +34,16 @@ class VoiceSettings:
     def from_mapping(cls, data: dict[str, Any] | None) -> VoiceSettings:
         raw = data or {}
         voice_id = str(raw.get("voice_id") or "af_heart").strip() or "af_heart"
-        if voice_id in {"local_default", "default"}:
+        if voice_id == "local_default":
             voice_id = "af_heart"
         voice_name = str(raw.get("voice_name") or "").strip() or voice_id
         if voice_name in {"Default", "local_default"} and voice_id == "af_heart":
             voice_name = "Heart"
         language = str(raw.get("language") or "en-US").strip() or "en-US"
         output_format = str(raw.get("output_format") or "wav").strip() or "wav"
+        reference = str(
+            raw.get("reference_audio_path") or raw.get("reference_voice") or ""
+        ).strip()
         return cls(
             api_key=str(raw.get("api_key") or "").strip(),
             voice_id=voice_id,
@@ -50,6 +55,7 @@ class VoiceSettings:
             speed=_clamp(_as_float(raw.get("speed"), 1.0), 0.5, 2.0),
             similarity=_clamp(_as_float(raw.get("similarity"), 0.75), 0.0, 1.0),
             output_format=output_format,
+            reference_audio_path=reference,
         )
 
 

@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -37,7 +38,7 @@ from app.providers.kokoro import (
     KOKORO_PROVIDER_LABEL,
 )
 from app.providers.local_voice import LOCAL_VOICE_PROVIDER_ID
-from app.providers.piper import PIPER_PROVIDER_ID, PIPER_PROVIDER_LABEL
+from app.providers.chatterbox import CHATTERBOX_PROVIDER_ID, CHATTERBOX_PROVIDER_LABEL
 from app.render.ffmpeg import FFmpegProcess
 from app.ui.dialogs.about_dialog import AboutDialog
 # TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
@@ -58,6 +59,8 @@ class SettingsPage(QWidget):
         self._pending_voice_id = ""
         self._pending_voice_name = ""
         self._voice_persist_enabled = True
+        self._hf_migration_offered = False
+        self._thumbnail_style = None
 
         title = QLabel("Settings")
         title.setObjectName("PageTitle")
@@ -85,6 +88,42 @@ class SettingsPage(QWidget):
         root_row = QHBoxLayout()
         root_row.addWidget(self._root_input, stretch=1)
         root_row.addWidget(browse_button)
+
+        storage_label = QLabel("AI Storage")
+        storage_label.setObjectName("SectionLabel")
+        storage_hint = QLabel(
+            "Atlas owns all AI model downloads. Hugging Face, Chatterbox, Whisper, "
+            "Forge, and Ollama caches live under this folder — never "
+            r"C:\Users\<user>\.cache\huggingface."
+        )
+        storage_hint.setObjectName("PageSubtitle")
+        storage_hint.setWordWrap(True)
+
+        models_folder_caption = QLabel("AI Models Folder")
+        models_folder_caption.setObjectName("PageSubtitle")
+        self._ai_models_input = QLineEdit()
+        self._ai_models_input.setPlaceholderText(r"D:\AI\Models")
+        browse_models = QPushButton("Browse")
+        browse_models.clicked.connect(self._browse_ai_models)
+        open_models = QPushButton("Open Folder")
+        open_models.clicked.connect(self._open_ai_models_folder)
+        models_row = QHBoxLayout()
+        models_row.addWidget(self._ai_models_input, stretch=1)
+        models_row.addWidget(browse_models)
+        models_row.addWidget(open_models)
+
+        save_storage = QPushButton("Save AI Storage")
+        save_storage.setObjectName("PrimaryButton")
+        save_storage.clicked.connect(self._save_ai_storage)
+        migrate_hf = QPushButton("Move Hugging Face Cache…")
+        migrate_hf.clicked.connect(self._migrate_hf_cache)
+        download_chatterbox = QPushButton("Download Chatterbox Model…")
+        download_chatterbox.clicked.connect(self._download_chatterbox_model)
+        storage_actions = QHBoxLayout()
+        storage_actions.addWidget(save_storage)
+        storage_actions.addWidget(migrate_hf)
+        storage_actions.addWidget(download_chatterbox)
+        storage_actions.addStretch()
 
         ai_label = QLabel("AI Text Provider")
         ai_label.setObjectName("SectionLabel")
@@ -187,7 +226,7 @@ class SettingsPage(QWidget):
 
         self._voice_provider = QComboBox()
         self._voice_provider.addItem(KOKORO_PROVIDER_LABEL, KOKORO_PROVIDER_ID)
-        self._voice_provider.addItem(PIPER_PROVIDER_LABEL, PIPER_PROVIDER_ID)
+        self._voice_provider.addItem(CHATTERBOX_PROVIDER_LABEL, CHATTERBOX_PROVIDER_ID)
         self._voice_provider.addItem("ElevenLabs (Optional)", "elevenlabs")
         # Future optional cloud plugins: OpenAI, Azure, Google, …
         self._voice_provider.currentIndexChanged.connect(self._sync_voice_provider_fields)
@@ -240,30 +279,30 @@ class SettingsPage(QWidget):
         self._voice_hint.setObjectName("PageSubtitle")
         self._voice_hint.setWordWrap(True)
 
-        # Piper models folder — always shows the exact absolute path scanned.
-        self._piper_folder_host = QWidget()
-        piper_folder_layout = QVBoxLayout(self._piper_folder_host)
-        piper_folder_layout.setContentsMargins(0, 4, 0, 4)
-        piper_folder_layout.setSpacing(6)
-        self._piper_folder_label = QLabel("Piper Models Folder:")
-        self._piper_folder_label.setObjectName("SectionLabel")
-        self._piper_folder_path = QLabel("")
-        self._piper_folder_path.setObjectName("PageSubtitle")
-        self._piper_folder_path.setWordWrap(True)
-        self._piper_folder_path.setTextInteractionFlags(
+        # Chatterbox reference-clip library — absolute path scanned for wav/mp3.
+        self._chatterbox_folder_host = QWidget()
+        chatterbox_folder_layout = QVBoxLayout(self._chatterbox_folder_host)
+        chatterbox_folder_layout.setContentsMargins(0, 4, 0, 4)
+        chatterbox_folder_layout.setSpacing(6)
+        self._chatterbox_folder_label = QLabel("Chatterbox Voices Folder:")
+        self._chatterbox_folder_label.setObjectName("SectionLabel")
+        self._chatterbox_folder_path = QLabel("")
+        self._chatterbox_folder_path.setObjectName("PageSubtitle")
+        self._chatterbox_folder_path.setWordWrap(True)
+        self._chatterbox_folder_path.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        self._piper_open_folder = QPushButton("Open Folder")
-        self._piper_open_folder.setObjectName("SecondaryButton")
-        self._piper_open_folder.clicked.connect(self._open_piper_models_folder)
-        piper_folder_row = QHBoxLayout()
-        piper_folder_row.setContentsMargins(0, 0, 0, 0)
-        piper_folder_row.addWidget(self._piper_open_folder)
-        piper_folder_row.addStretch()
-        piper_folder_layout.addWidget(self._piper_folder_label)
-        piper_folder_layout.addWidget(self._piper_folder_path)
-        piper_folder_layout.addLayout(piper_folder_row)
-        self._piper_folder_host.hide()
+        self._chatterbox_open_folder = QPushButton("Open Folder")
+        self._chatterbox_open_folder.setObjectName("SecondaryButton")
+        self._chatterbox_open_folder.clicked.connect(self._open_chatterbox_voices_folder)
+        chatterbox_folder_row = QHBoxLayout()
+        chatterbox_folder_row.setContentsMargins(0, 0, 0, 0)
+        chatterbox_folder_row.addWidget(self._chatterbox_open_folder)
+        chatterbox_folder_row.addStretch()
+        chatterbox_folder_layout.addWidget(self._chatterbox_folder_label)
+        chatterbox_folder_layout.addWidget(self._chatterbox_folder_path)
+        chatterbox_folder_layout.addLayout(chatterbox_folder_row)
+        self._chatterbox_folder_host.hide()
 
         voice_form = QFormLayout()
         self._voice_api_key_label = QLabel("API Key")
@@ -408,6 +447,12 @@ class SettingsPage(QWidget):
         layout.addLayout(root_row)
         layout.addWidget(save_root_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addSpacing(20)
+        layout.addWidget(storage_label)
+        layout.addWidget(storage_hint)
+        layout.addWidget(models_folder_caption)
+        layout.addLayout(models_row)
+        layout.addLayout(storage_actions)
+        layout.addSpacing(20)
 
         # Channel-owned production config moved to Channel Settings.
         # Keep machine connections / API keys as application fallbacks.
@@ -447,7 +492,7 @@ class SettingsPage(QWidget):
         fallbacks.addWidget(health_panel)
         fallbacks.addLayout(self._voice_health_actions)
         fallbacks.addWidget(self._voice_hint)
-        fallbacks.addWidget(self._piper_folder_host)
+        fallbacks.addWidget(self._chatterbox_folder_host)
         fallbacks.addWidget(library_label)
         fallbacks.addWidget(self._voice_library)
         fallbacks.addLayout(voice_form)
@@ -492,6 +537,7 @@ class SettingsPage(QWidget):
         # TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
         if self._thumbnail_style is not None:
             self._thumbnail_style.refresh()
+        self._maybe_offer_hf_migration()
 
     def open_about(self) -> None:
         AboutDialog(self).exec()
@@ -528,6 +574,13 @@ class SettingsPage(QWidget):
             return
         current = app.config.project_root
         self._root_input.setText(str(current) if current else "")
+        models_root = getattr(app.config, "ai_models_root", None)
+        if models_root is not None:
+            self._ai_models_input.setText(str(models_root))
+        else:
+            from app.core.ai_storage import default_ai_models_root
+
+            self._ai_models_input.setText(str(default_ai_models_root()))
         self._api_key.setText(app.config.gemini_api_key or "")
         provider = app.config.text_provider or "gemini"
         index = self._provider.findData(provider)
@@ -624,6 +677,123 @@ class SettingsPage(QWidget):
         chosen = QFileDialog.getExistingDirectory(self, "Select Project Root", start)
         if chosen:
             self._root_input.setText(chosen)
+
+    def _browse_ai_models(self) -> None:
+        start = self._ai_models_input.text().strip() or r"D:\AI\Models"
+        chosen = QFileDialog.getExistingDirectory(self, "Select AI Models Folder", start)
+        if chosen:
+            self._ai_models_input.setText(chosen)
+
+    def _open_ai_models_folder(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from app.core.ai_storage import ensure_ai_models_layout
+
+        text = self._ai_models_input.text().strip()
+        if not text:
+            QMessageBox.warning(self, "Atlas Studio", "Choose an AI Models folder first.")
+            return
+        try:
+            folder = ensure_ai_models_layout(Path(text))
+        except OSError as exc:
+            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            return
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+        if not opened:
+            QMessageBox.warning(self, "Atlas Studio", f"Could not open folder:\n{folder}")
+
+    def _save_ai_storage(self) -> None:
+        app = self._app()
+        if app is None:
+            return
+        text = self._ai_models_input.text().strip()
+        if not text:
+            QMessageBox.warning(self, "Atlas Studio", "Choose an AI Models folder.")
+            return
+        from app.core.ai_storage import apply_ai_storage_environment, ensure_ai_models_layout
+
+        try:
+            resolved = ensure_ai_models_layout(Path(text))
+        except OSError as exc:
+            QMessageBox.warning(self, "Atlas Studio", str(exc))
+            return
+        app.config.ai_models_root = resolved
+        app.config.save()
+        apply_ai_storage_environment(resolved)
+        self._ai_models_input.setText(str(resolved))
+        self._status.setText(f"AI Models Folder: {resolved}")
+        app.show_notification("AI Storage Saved", str(resolved))
+
+    def _migrate_hf_cache(self) -> None:
+        from app.core import ai_storage
+        from app.ui.dialogs.hf_migration_dialog import (
+            HuggingFaceMigrationDialog,
+            offer_legacy_hf_migration,
+        )
+
+        if not ai_storage.legacy_hf_cache_has_content():
+            QMessageBox.information(
+                self,
+                "Atlas Studio",
+                "No models were found in the Windows default Hugging Face cache:\n\n"
+                f"{ai_storage.legacy_huggingface_cache()}",
+            )
+            return
+        # Prefer the current input path for destination root.
+        text = self._ai_models_input.text().strip()
+        if text:
+            ai_storage.ensure_ai_models_layout(Path(text))
+            dest = ai_storage.huggingface_dir(Path(text))
+            dialog = HuggingFaceMigrationDialog(self, destination=dest)
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result is not None:
+                result = dialog.result
+                self._status.setText(
+                    f"Moved {result.moved} item(s) to {result.destination}"
+                )
+            return
+        offer_legacy_hf_migration(self)
+
+    def _download_chatterbox_model(self) -> None:
+        from app.ui.dialogs.chatterbox_model_dialog import ensure_chatterbox_model
+
+        text = self._ai_models_input.text().strip()
+        root = Path(text) if text else None
+        if root is not None:
+            from app.core.ai_storage import apply_ai_storage_environment
+
+            try:
+                apply_ai_storage_environment(root)
+            except OSError as exc:
+                QMessageBox.warning(self, "Atlas Studio", str(exc))
+                return
+        if ensure_chatterbox_model(self):
+            self._status.setText("Chatterbox model is ready.")
+        else:
+            self._status.setText("Chatterbox model is not installed yet.")
+
+    def _maybe_offer_hf_migration(self) -> None:
+        if getattr(self, "_hf_migration_offered", False):
+            return
+        self._hf_migration_offered = True
+        from app.core import ai_storage
+        from app.ui.dialogs.hf_migration_dialog import offer_legacy_hf_migration
+
+        if not ai_storage.legacy_hf_cache_has_content():
+            return
+        # Only prompt when Atlas HuggingFace folder looks empty.
+        dest = ai_storage.huggingface_dir()
+        try:
+            has_atlas = dest.is_dir() and any(dest.iterdir())
+        except OSError:
+            has_atlas = False
+        if has_atlas:
+            return
+        result = offer_legacy_hf_migration(self)
+        if result is not None:
+            self._status.setText(
+                f"Moved {result.moved} item(s) to {result.destination}"
+            )
 
     def _save_root(self) -> None:
         app = self._app()
@@ -794,13 +964,13 @@ class SettingsPage(QWidget):
         return selected in {
             KOKORO_PROVIDER_ID,
             LOCAL_VOICE_PROVIDER_ID,
-            PIPER_PROVIDER_ID,
+            CHATTERBOX_PROVIDER_ID,
         }
 
     def _sync_voice_provider_fields(self, *_args) -> None:
         local = self._is_local_voice_selected()
         kokoro = self._is_kokoro_selected()
-        piper = self._selected_voice_provider_id().casefold() == PIPER_PROVIDER_ID
+        chatterbox = self._selected_voice_provider_id().casefold() == CHATTERBOX_PROVIDER_ID
         # Cloud-only knobs — local providers do not need an API key.
         for widget in (
             self._voice_api_key_label,
@@ -816,29 +986,30 @@ class SettingsPage(QWidget):
         ):
             widget.setVisible(not local)
         if kokoro:
-            self._piper_folder_host.hide()
+            self._chatterbox_folder_host.hide()
             self._voice_hint.setText(
                 "Kokoro (ONNX) is the default local voice provider (offline, free). "
                 "Install with: pip install -r requirements-voice-local.txt "
                 "(Python 3.10–3.13). Model files download into Cache/kokoro on first use. "
-                "Optional Piper or cloud providers can be selected above."
+                "Optional Chatterbox or cloud providers can be selected above."
             )
             if not self._voice_output_format.text().strip():
                 self._voice_output_format.setText("wav")
-        elif piper:
-            self._update_piper_folder_ui()
-            self._piper_folder_host.show()
-            models = self._piper_folder_path.text().strip() or "voices/piper"
+        elif chatterbox:
+            self._update_chatterbox_folder_ui()
+            self._chatterbox_folder_host.show()
+            models = self._chatterbox_folder_path.text().strip() or "voices/chatterbox"
             self._voice_hint.setText(
-                "Piper is a second local voice provider (offline, free). "
-                "Install with: pip install piper-tts "
-                f"(or requirements-voice-local.txt). Place *.onnx models in:\n{models}\n"
-                "Voices are discovered automatically — nothing is hardcoded."
+                "Chatterbox is the second local voice provider (Resemble AI). "
+                "Install with: pip install chatterbox-tts "
+                f"(or requirements-voice-local.txt). Optional reference clips in:\n{models}\n"
+                "Model weights download into Settings → AI Storage (never the Windows HF cache). "
+                "Voices are discovered from the installed package — nothing is hardcoded."
             )
             if not self._voice_output_format.text().strip():
                 self._voice_output_format.setText("wav")
         else:
-            self._piper_folder_host.hide()
+            self._chatterbox_folder_host.hide()
             self._voice_hint.setText(
                 "Cloud voice providers are optional. "
                 "A valid API key is required for the selected service."
@@ -846,25 +1017,25 @@ class SettingsPage(QWidget):
         self._refresh_voice_health(full=False)
         self._refresh_voice_library()
 
-    def _piper_models_folder(self) -> Path | None:
-        """Absolute folder PiperVoiceProvider scans for *.onnx models."""
+    def _chatterbox_voices_folder(self) -> Path | None:
+        """Absolute folder for optional Chatterbox reference clips."""
         discovery = self._voice_discovery()
         if discovery is None:
             return None
-        return discovery.piper_voices_dir()
+        return discovery.chatterbox_voices_dir()
 
-    def _update_piper_folder_ui(self) -> None:
-        folder = self._piper_models_folder()
+    def _update_chatterbox_folder_ui(self) -> None:
+        folder = self._chatterbox_voices_folder()
         if folder is None:
-            self._piper_folder_path.setText("(Application is not ready)")
-            self._piper_open_folder.setEnabled(False)
+            self._chatterbox_folder_path.setText("(Application is not ready)")
+            self._chatterbox_open_folder.setEnabled(False)
             return
         folder.mkdir(parents=True, exist_ok=True)
-        self._piper_folder_path.setText(str(folder.resolve()))
-        self._piper_open_folder.setEnabled(True)
+        self._chatterbox_folder_path.setText(str(folder.resolve()))
+        self._chatterbox_open_folder.setEnabled(True)
 
-    def _open_piper_models_folder(self) -> None:
-        folder = self._piper_models_folder()
+    def _open_chatterbox_voices_folder(self) -> None:
+        folder = self._chatterbox_voices_folder()
         if folder is None:
             self._status.setText("Application is not ready.")
             return
@@ -874,7 +1045,7 @@ class SettingsPage(QWidget):
 
         opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder.resolve())))
         if opened:
-            self._status.setText(f"Opened Piper models folder: {folder.resolve()}")
+            self._status.setText(f"Opened Chatterbox voices folder: {folder.resolve()}")
         else:
             self._status.setText(f"Could not open folder: {folder.resolve()}")
 
@@ -942,7 +1113,7 @@ class SettingsPage(QWidget):
             self._apply_voice_health(probe_kokoro_quick(model_dir=model_dir))
             return
 
-        if self._selected_voice_provider_id().casefold() == PIPER_PROVIDER_ID:
+        if self._selected_voice_provider_id().casefold() == CHATTERBOX_PROVIDER_ID:
             discovery = self._voice_discovery()
             if discovery is None:
                 self._apply_voice_health(
@@ -953,24 +1124,29 @@ class SettingsPage(QWidget):
                     )
                 )
                 return
-            voices_dir = discovery.piper_voices_dir()
-            onnx_count = (
-                len(list(voices_dir.rglob("*.onnx"))) if voices_dir.is_dir() else 0
-            )
-            if onnx_count <= 0:
+            try:
+                result = discovery.discover(provider_id=CHATTERBOX_PROVIDER_ID)
+            except Exception as exc:  # noqa: BLE001
+                self._apply_voice_health(
+                    VoiceHealthDisplay("error", "Chatterbox error", str(exc))
+                )
+                return
+            if not result.ok:
                 self._apply_voice_health(
                     VoiceHealthDisplay(
                         "warn",
-                        "No Piper models",
-                        f"Place *.onnx voice files in {voices_dir}.",
+                        "Chatterbox not ready",
+                        result.empty_message,
                     )
                 )
             else:
+                voices_dir = result.model_dir or str(discovery.chatterbox_voices_dir())
                 self._apply_voice_health(
                     VoiceHealthDisplay(
                         "ok",
-                        "Piper models found",
-                        f"{onnx_count} *.onnx file(s) in {voices_dir}.",
+                        "Chatterbox ready",
+                        f"{len(result.voices)} voice(s) discovered. "
+                        f"Reference clips folder: {voices_dir}.",
                     )
                 )
             return
@@ -982,7 +1158,7 @@ class SettingsPage(QWidget):
                 VoiceHealthDisplay(
                     "warn",
                     "API key required",
-                    "Enter an API key for this cloud provider, or switch to Kokoro / Piper.",
+                    "Enter an API key for this cloud provider, or switch to Kokoro / Chatterbox.",
                 )
             )
             return
@@ -1129,6 +1305,21 @@ class SettingsPage(QWidget):
                     return
                 message = health.message
             else:
+                if self._selected_voice_provider_id().casefold() == CHATTERBOX_PROVIDER_ID:
+                    from app.providers.chatterbox_install import is_chatterbox_english_installed
+                    from app.ui.dialogs.chatterbox_model_dialog import ensure_chatterbox_model
+
+                    if not is_chatterbox_english_installed():
+                        if not ensure_chatterbox_model(self):
+                            self._apply_voice_health(
+                                VoiceHealthDisplay(
+                                    "error",
+                                    "Chatterbox model missing",
+                                    "Download the Chatterbox model to continue.",
+                                )
+                            )
+                            self._status.setText("Chatterbox model not installed.")
+                            return
                 message = provider.test_connection()
                 self._apply_voice_health(
                     VoiceHealthDisplay("ok", "Provider Ready", message)
@@ -1136,6 +1327,12 @@ class SettingsPage(QWidget):
             voices = provider.list_voices()
             models = provider.list_models()
         except ProviderError as exc:
+            from app.ui.dialogs.chatterbox_model_dialog import (
+                offer_chatterbox_download_for_error,
+            )
+
+            if offer_chatterbox_download_for_error(self, exc):
+                return self._test_voice()
             detail = str(exc)
             self._apply_voice_health(
                 VoiceHealthDisplay("error", "Provider error", detail)
@@ -1173,12 +1370,12 @@ class SettingsPage(QWidget):
         local = self._is_local_voice_selected()
         if provider_id.casefold() in {LOCAL_VOICE_PROVIDER_ID, "kokoro"}:
             provider_id = KOKORO_PROVIDER_ID
-        if provider_id.casefold() == PIPER_PROVIDER_ID:
-            provider_id = PIPER_PROVIDER_ID
+        if provider_id.casefold() == CHATTERBOX_PROVIDER_ID:
+            provider_id = CHATTERBOX_PROVIDER_ID
         if not local and not settings.api_key:
             message = (
                 "Enter an API key for this cloud provider, "
-                "or switch to Kokoro / Piper."
+                "or switch to Kokoro / Chatterbox."
             )
             self._apply_voice_health(
                 VoiceHealthDisplay("warn", "API key required", message)

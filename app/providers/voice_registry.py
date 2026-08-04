@@ -10,7 +10,7 @@ from app.providers.voice_base import VoiceProvider
 
 # Keep ids here so importing this registry does not load provider SDKs.
 KOKORO_PROVIDER_ID = "kokoro"
-PIPER_PROVIDER_ID = "piper"
+CHATTERBOX_PROVIDER_ID = "chatterbox"
 LOCAL_VOICE_PROVIDER_ID = "local"
 
 
@@ -31,6 +31,13 @@ class VoiceProviderRegistry:
             # Free-first: Kokoro ONNX is the default local provider.
             resolved_id = KOKORO_PROVIDER_ID
 
+        # Piper was replaced by Chatterbox — fail with an actionable message.
+        if resolved_id == "piper":
+            raise ProviderConfigurationError(
+                "Piper has been removed. Select Chatterbox as the second local "
+                "voice provider in Voice Settings / Channel Settings."
+            )
+
         voice_settings = settings if settings is not None else self._config.voice
 
         if resolved_id in {KOKORO_PROVIDER_ID, LOCAL_VOICE_PROVIDER_ID}:
@@ -40,12 +47,15 @@ class VoiceProviderRegistry:
             model_dir = StoragePaths(self._config.data_root).cache / "kokoro"
             return KokoroProvider(voice_settings, model_dir=model_dir)
 
-        if resolved_id == PIPER_PROVIDER_ID:
-            from app.providers.piper import PiperVoiceProvider, ensure_piper_voices_dir
+        if resolved_id == CHATTERBOX_PROVIDER_ID:
+            from app.providers.chatterbox import (
+                ChatterboxVoiceProvider,
+                ensure_chatterbox_voices_dir,
+            )
 
-            return PiperVoiceProvider(
+            return ChatterboxVoiceProvider(
                 voice_settings,
-                voices_dir=ensure_piper_voices_dir(self._config.data_root),
+                voices_dir=ensure_chatterbox_voices_dir(self._config.data_root),
             )
 
         if resolved_id == "elevenlabs":
@@ -54,11 +64,11 @@ class VoiceProviderRegistry:
             if not voice_settings.api_key.strip():
                 raise ProviderConfigurationError(
                     "ElevenLabs API key is empty. "
-                    "Configure Voice Provider settings, or switch to Kokoro / Piper."
+                    "Configure Voice Provider settings, or switch to Kokoro / Chatterbox."
                 )
             return ElevenLabsVoiceProvider(voice_settings)
 
         raise ProviderConfigurationError(
             f"Unsupported voice provider '{resolved_id}'. "
-            "Supported: kokoro (default), piper (local), elevenlabs (optional)."
+            "Supported: kokoro (default), chatterbox (local), elevenlabs (optional)."
         )

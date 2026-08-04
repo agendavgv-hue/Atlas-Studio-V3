@@ -10,7 +10,7 @@ from dataclasses import dataclass
 class VoiceInfo:
     """Selectable voice from a provider catalogue.
 
-    Future providers (Kokoro, ElevenLabs, OpenAI, Google, Azure, Piper, …)
+    Future providers (Kokoro, Chatterbox, ElevenLabs, OpenAI, Google, Azure, …)
     should fill as many of these fields as the backend exposes. The Voice
     Library UI is built against this shape only — never against vendor ids.
     """
@@ -39,6 +39,8 @@ class VoiceSynthesisRequest:
     speed: float = 0.0
     similarity: float = 0.0
     output_format: str = ""
+    # Optional zero-shot clone clip (Chatterbox). Ignored by other providers.
+    reference_audio_path: str = ""
 
 
 @dataclass(frozen=True)

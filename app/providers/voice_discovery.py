@@ -16,9 +16,9 @@ from app.core.voice_settings import VoiceSettings
 from app.providers.errors import ProviderConfigurationError, ProviderError
 from app.providers.voice_base import VoiceInfo, VoiceProvider
 from app.providers.voice_registry import (
+    CHATTERBOX_PROVIDER_ID,
     KOKORO_PROVIDER_ID,
     LOCAL_VOICE_PROVIDER_ID,
-    PIPER_PROVIDER_ID,
     VoiceProviderRegistry,
 )
 
@@ -69,11 +69,11 @@ class VoiceDiscoveryService:
         """Canonical Kokoro model directory used by generation."""
         return StoragePaths(self._config.data_root).cache / "kokoro"
 
-    def piper_voices_dir(self):
-        """Canonical Piper models folder: ``{data_root}/voices/piper`` (created)."""
-        from app.providers.piper import ensure_piper_voices_dir
+    def chatterbox_voices_dir(self):
+        """Canonical Chatterbox reference-clip folder (created)."""
+        from app.providers.chatterbox import ensure_chatterbox_voices_dir
 
-        return ensure_piper_voices_dir(self._config.data_root)
+        return ensure_chatterbox_voices_dir(self._config.data_root)
 
     def resolve_provider(
         self,
@@ -109,8 +109,8 @@ class VoiceDiscoveryService:
         model_dir = ""
         if resolved_id == KOKORO_PROVIDER_ID:
             model_dir = str(self.kokoro_model_dir())
-        elif resolved_id == PIPER_PROVIDER_ID:
-            model_dir = str(self.piper_voices_dir())
+        elif resolved_id == CHATTERBOX_PROVIDER_ID:
+            model_dir = str(self.chatterbox_voices_dir())
 
         try:
             provider = self.resolve_provider(
@@ -155,8 +155,11 @@ class VoiceDiscoveryService:
             detail = (
                 f"Provider '{resolved_id}' returned an empty catalogue."
             )
-            if resolved_id == PIPER_PROVIDER_ID and model_dir:
-                detail += f" Place Piper *.onnx models in {model_dir}."
+            if resolved_id == CHATTERBOX_PROVIDER_ID and model_dir:
+                detail += (
+                    " Install chatterbox-tts, or place optional reference "
+                    f"clips (wav/mp3) in {model_dir}."
+                )
             elif model_dir:
                 detail += (
                     f" Check model files under {model_dir} "

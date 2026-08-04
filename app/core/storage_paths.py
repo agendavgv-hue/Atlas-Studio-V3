@@ -57,7 +57,7 @@ class StoragePaths:
 
     @property
     def voices(self) -> Path:
-        """Local TTS voice model packs (e.g. ``voices/piper``)."""
+        """Local TTS voice packs / reference clips (e.g. ``voices/chatterbox``)."""
         return self._root / VOICES
 
     @property
