@@ -14,6 +14,7 @@ BRAIN = "Brain"
 CREATIVE = "Creative"
 EXPORTS = "Exports"
 LOGS = "Logs"
+VOICES = "voices"
 
 MANAGED_DIRECTORIES: tuple[str, ...] = (
     CHANNELS,
@@ -24,6 +25,7 @@ MANAGED_DIRECTORIES: tuple[str, ...] = (
     CREATIVE,
     EXPORTS,
     LOGS,
+    VOICES,
 )
 
 
@@ -52,6 +54,11 @@ class StoragePaths:
     @property
     def cache(self) -> Path:
         return self._root / CACHE
+
+    @property
+    def voices(self) -> Path:
+        """Local TTS voice model packs (e.g. ``voices/piper``)."""
+        return self._root / VOICES
 
     @property
     def brain(self) -> Path:

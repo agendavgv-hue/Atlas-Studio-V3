@@ -154,16 +154,22 @@ class KokoroProvider(VoiceProvider):
         )
 
     def list_voices(self) -> list[VoiceInfo]:
-        """Enumerate voices from the ONNX runtime. Never hardcodes the catalogue."""
+        """Enumerate voices from the ONNX runtime. Never hardcodes the catalogue.
+
+        Raises ``ProviderError`` with a concrete reason when discovery fails
+        (missing package, missing model folder/files, engine init error, empty
+        catalogue). Callers that need a soft empty list should use
+        ``VoiceDiscoveryService``.
+        """
+        self._ensure_runtime()
+        self._ensure_model_files()
+        engine = self._get_engine()
         try:
-            self._ensure_runtime()
-            self._ensure_model_files()
-            engine = self._get_engine()
             names = list(engine.get_voices())
-        except ProviderError:
-            return []
-        except Exception:  # noqa: BLE001
-            return []
+        except Exception as exc:  # noqa: BLE001
+            raise ProviderError(
+                f"Kokoro could not list voices from {self._model_dir}: {exc}"
+            ) from exc
 
         voices: list[VoiceInfo] = []
         for voice_id in names:
@@ -171,6 +177,12 @@ class KokoroProvider(VoiceProvider):
             if cleaned:
                 voices.append(_voice_info_from_id(cleaned))
         voices.sort(key=lambda item: (item.gender.casefold(), item.name.casefold()))
+        if not voices:
+            voices_path = self._model_dir / _VOICES_FILENAME
+            raise ProviderError(
+                "Kokoro reported zero voices. "
+                f"Verify the voices file at {voices_path}."
+            )
         return voices
 
     def list_models(self) -> list[str]:

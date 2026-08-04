@@ -41,6 +41,7 @@ class VoiceLibraryWidget(QWidget):
         self._provider: VoiceProvider | None = None
         self._rows: list[QWidget] = []
         self._last_warning = ""
+        self._empty_reason = ""
 
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search voices…")
@@ -114,8 +115,24 @@ class VoiceLibraryWidget(QWidget):
         gender: str = "",
         style_tags: tuple[str, ...] | list[str] = (),
         language: str = "",
+        channel_language: str = "",
+        empty_message: str = "",
     ) -> None:
-        self._voices = list(voices)
+        from app.channels.language import voice_matches_language
+
+        catalogue = list(voices)
+        if channel_language:
+            filtered = [
+                voice
+                for voice in catalogue
+                if voice_matches_language(voice.language, channel_language)
+            ]
+            # Prefer language matches, but never hide the full catalogue when
+            # the provider has voices (Kokoro is English-only today).
+            if filtered:
+                catalogue = filtered
+        self._voices = catalogue
+        self._empty_reason = (empty_message or "").strip()
         preferred = selected_voice_id or self._selected_id
         resolved, warning = resolve_available_voice(
             self._voices,
@@ -139,10 +156,11 @@ class VoiceLibraryWidget(QWidget):
             self.voice_selected.emit(resolved)
         else:
             self._selection.setText("No voice selected")
-            if warning:
-                self._warning.setText(warning)
+            reason = self._empty_reason or warning
+            if reason:
+                self._warning.setText(reason)
                 self._warning.show()
-                self.status_message.emit(warning)
+                self.status_message.emit(reason)
             else:
                 self._warning.hide()
                 self._warning.clear()
@@ -183,9 +201,12 @@ class VoiceLibraryWidget(QWidget):
         filtered = self._filtered()
         if not filtered:
             self._empty.setText(
-                "No voices available."
-                if not self._voices
-                else "No voices match your search."
+                self._empty_reason
+                or (
+                    "No voices available."
+                    if not self._voices
+                    else "No voices match your search."
+                )
             )
             self._empty.show()
             self._list_layout.addStretch(1)
@@ -256,19 +277,30 @@ class VoiceLibraryWidget(QWidget):
         if self._provider is None:
             self.status_message.emit("No voice provider is ready for preview.")
             return
+        voice_id = (voice.voice_id or "").strip()
+        if not voice_id:
+            # Same provider-facing message Piper raises for Generate Voice.
+            if (self._provider.provider_id or "").casefold() == "piper":
+                self.status_message.emit("No Piper voice selected.")
+            else:
+                self.status_message.emit("No voice selected.")
+            return
         sample = (
             voice.sample_text.strip()
             or "Welcome to Mirror Drift, where tomorrow begins today."
         )
         self.status_message.emit(f"Generating preview for {voice.name}…")
+        from app.voice.generator import synthesize_with_provider
+
         try:
-            response = self._provider.synthesize(
+            response = synthesize_with_provider(
+                self._provider,
                 VoiceSynthesisRequest(
                     text=sample,
-                    voice_id=voice.voice_id,
+                    voice_id=voice_id,
                     language=voice.language,
                     output_format="wav",
-                )
+                ),
             )
         except ProviderError as exc:
             self.status_message.emit(str(exc))

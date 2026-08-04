@@ -32,6 +32,20 @@ class VoiceGenerationResult:
     generation_time_ms: float = 0.0
 
 
+def synthesize_with_provider(
+    provider: VoiceProvider,
+    request: VoiceSynthesisRequest,
+) -> VoiceSynthesisResponse:
+    """Single synthesis entry point for Preview and Generate Voice.
+
+    Preview buttons and the voice pipeline must both call this so provider
+    logic (voice/model resolution, local ONNX path, etc.) stays identical.
+    """
+    if provider is None:
+        raise ProviderError("No voice provider is configured for generation.")
+    return provider.synthesize(request)
+
+
 class VoiceGenerator:
     """Create narration audio bytes from a durable ``VoiceManifest``."""
 
@@ -47,11 +61,8 @@ class VoiceGenerator:
         ``context`` is accepted for pipeline consistency and future hooks.
         """
         del context  # reserved — keep signature stable for Service/Pipeline
-        if provider is None:
-            raise ProviderError("No voice provider is configured for generation.")
-
         request = self._request_from_manifest(manifest)
-        response = provider.synthesize(request)
+        response = synthesize_with_provider(provider, request)
         return self._to_result(response, provider)
 
     @staticmethod

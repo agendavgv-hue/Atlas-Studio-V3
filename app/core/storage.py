@@ -35,6 +35,11 @@ class Storage:
         return self._paths.root
 
     @property
+    def data_root(self) -> Path:
+        """Compatibility alias for ``root`` — the Atlas data directory."""
+        return self.root
+
+    @property
     def channels(self) -> Path:
         return self._paths.channels
 
@@ -49,6 +54,10 @@ class Storage:
     @property
     def cache(self) -> Path:
         return self._paths.cache
+
+    @property
+    def voices(self) -> Path:
+        return self._paths.voices
 
     @property
     def brain(self) -> Path:
@@ -71,6 +80,8 @@ class Storage:
         self.root.mkdir(parents=True, exist_ok=True)
         for directory in self._paths.all_directories():
             directory.mkdir(parents=True, exist_ok=True)
+        # Piper (and future local packs) discover models under voices/<provider>/.
+        (self._paths.voices / "piper").mkdir(parents=True, exist_ok=True)
 
     def set_data_root(self, path: Path) -> None:
         """Update, persist, and ensure the storage layout at a new root."""

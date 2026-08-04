@@ -29,16 +29,15 @@ from app.core.movie_settings import (
     MovieSettings,
 )
 from app.core.voice_settings import VoiceSettings
-from app.providers.elevenlabs import ElevenLabsVoiceProvider
 from app.providers.errors import ProviderError
 from app.providers.forge import ForgeImageProvider
 from app.providers.gemini import discover_text_models
 from app.providers.kokoro import (
     KOKORO_PROVIDER_ID,
     KOKORO_PROVIDER_LABEL,
-    KokoroProvider,
 )
 from app.providers.local_voice import LOCAL_VOICE_PROVIDER_ID
+from app.providers.piper import PIPER_PROVIDER_ID, PIPER_PROVIDER_LABEL
 from app.render.ffmpeg import FFmpegProcess
 from app.ui.dialogs.about_dialog import AboutDialog
 # TODO V3.1 — Restore Thumbnail Generator after new AI workflow.
@@ -188,6 +187,7 @@ class SettingsPage(QWidget):
 
         self._voice_provider = QComboBox()
         self._voice_provider.addItem(KOKORO_PROVIDER_LABEL, KOKORO_PROVIDER_ID)
+        self._voice_provider.addItem(PIPER_PROVIDER_LABEL, PIPER_PROVIDER_ID)
         self._voice_provider.addItem("ElevenLabs (Optional)", "elevenlabs")
         # Future optional cloud plugins: OpenAI, Azure, Google, …
         self._voice_provider.currentIndexChanged.connect(self._sync_voice_provider_fields)
@@ -239,6 +239,31 @@ class SettingsPage(QWidget):
         )
         self._voice_hint.setObjectName("PageSubtitle")
         self._voice_hint.setWordWrap(True)
+
+        # Piper models folder — always shows the exact absolute path scanned.
+        self._piper_folder_host = QWidget()
+        piper_folder_layout = QVBoxLayout(self._piper_folder_host)
+        piper_folder_layout.setContentsMargins(0, 4, 0, 4)
+        piper_folder_layout.setSpacing(6)
+        self._piper_folder_label = QLabel("Piper Models Folder:")
+        self._piper_folder_label.setObjectName("SectionLabel")
+        self._piper_folder_path = QLabel("")
+        self._piper_folder_path.setObjectName("PageSubtitle")
+        self._piper_folder_path.setWordWrap(True)
+        self._piper_folder_path.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._piper_open_folder = QPushButton("Open Folder")
+        self._piper_open_folder.setObjectName("SecondaryButton")
+        self._piper_open_folder.clicked.connect(self._open_piper_models_folder)
+        piper_folder_row = QHBoxLayout()
+        piper_folder_row.setContentsMargins(0, 0, 0, 0)
+        piper_folder_row.addWidget(self._piper_open_folder)
+        piper_folder_row.addStretch()
+        piper_folder_layout.addWidget(self._piper_folder_label)
+        piper_folder_layout.addWidget(self._piper_folder_path)
+        piper_folder_layout.addLayout(piper_folder_row)
+        self._piper_folder_host.hide()
 
         voice_form = QFormLayout()
         self._voice_api_key_label = QLabel("API Key")
@@ -422,6 +447,7 @@ class SettingsPage(QWidget):
         fallbacks.addWidget(health_panel)
         fallbacks.addLayout(self._voice_health_actions)
         fallbacks.addWidget(self._voice_hint)
+        fallbacks.addWidget(self._piper_folder_host)
         fallbacks.addWidget(library_label)
         fallbacks.addWidget(self._voice_library)
         fallbacks.addLayout(voice_form)
@@ -763,9 +789,19 @@ class SettingsPage(QWidget):
         selected = self._selected_voice_provider_id().casefold()
         return selected in {KOKORO_PROVIDER_ID, LOCAL_VOICE_PROVIDER_ID}
 
+    def _is_local_voice_selected(self) -> bool:
+        selected = self._selected_voice_provider_id().casefold()
+        return selected in {
+            KOKORO_PROVIDER_ID,
+            LOCAL_VOICE_PROVIDER_ID,
+            PIPER_PROVIDER_ID,
+        }
+
     def _sync_voice_provider_fields(self, *_args) -> None:
+        local = self._is_local_voice_selected()
         kokoro = self._is_kokoro_selected()
-        # Cloud-only knobs — Kokoro does not need an API key.
+        piper = self._selected_voice_provider_id().casefold() == PIPER_PROVIDER_ID
+        # Cloud-only knobs — local providers do not need an API key.
         for widget in (
             self._voice_api_key_label,
             self._voice_api_key,
@@ -778,17 +814,31 @@ class SettingsPage(QWidget):
             self._voice_similarity_label,
             self._voice_similarity,
         ):
-            widget.setVisible(not kokoro)
+            widget.setVisible(not local)
         if kokoro:
+            self._piper_folder_host.hide()
             self._voice_hint.setText(
                 "Kokoro (ONNX) is the default local voice provider (offline, free). "
                 "Install with: pip install -r requirements-voice-local.txt "
                 "(Python 3.10–3.13). Model files download into Cache/kokoro on first use. "
-                "Optional cloud providers can be configured below."
+                "Optional Piper or cloud providers can be selected above."
+            )
+            if not self._voice_output_format.text().strip():
+                self._voice_output_format.setText("wav")
+        elif piper:
+            self._update_piper_folder_ui()
+            self._piper_folder_host.show()
+            models = self._piper_folder_path.text().strip() or "voices/piper"
+            self._voice_hint.setText(
+                "Piper is a second local voice provider (offline, free). "
+                "Install with: pip install piper-tts "
+                f"(or requirements-voice-local.txt). Place *.onnx models in:\n{models}\n"
+                "Voices are discovered automatically — nothing is hardcoded."
             )
             if not self._voice_output_format.text().strip():
                 self._voice_output_format.setText("wav")
         else:
+            self._piper_folder_host.hide()
             self._voice_hint.setText(
                 "Cloud voice providers are optional. "
                 "A valid API key is required for the selected service."
@@ -796,13 +846,53 @@ class SettingsPage(QWidget):
         self._refresh_voice_health(full=False)
         self._refresh_voice_library()
 
-    def _kokoro_model_dir(self):
-        from app.core.storage_paths import StoragePaths
+    def _piper_models_folder(self) -> Path | None:
+        """Absolute folder PiperVoiceProvider scans for *.onnx models."""
+        discovery = self._voice_discovery()
+        if discovery is None:
+            return None
+        return discovery.piper_voices_dir()
 
+    def _update_piper_folder_ui(self) -> None:
+        folder = self._piper_models_folder()
+        if folder is None:
+            self._piper_folder_path.setText("(Application is not ready)")
+            self._piper_open_folder.setEnabled(False)
+            return
+        folder.mkdir(parents=True, exist_ok=True)
+        self._piper_folder_path.setText(str(folder.resolve()))
+        self._piper_open_folder.setEnabled(True)
+
+    def _open_piper_models_folder(self) -> None:
+        folder = self._piper_models_folder()
+        if folder is None:
+            self._status.setText("Application is not ready.")
+            return
+        folder.mkdir(parents=True, exist_ok=True)
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder.resolve())))
+        if opened:
+            self._status.setText(f"Opened Piper models folder: {folder.resolve()}")
+        else:
+            self._status.setText(f"Could not open folder: {folder.resolve()}")
+
+    def _kokoro_model_dir(self):
         app = self._app()
         if app is None:
             return None
-        return StoragePaths(app.config.data_root).cache / "kokoro"
+        from app.providers.voice_discovery import VoiceDiscoveryService
+
+        return VoiceDiscoveryService(app.config).kokoro_model_dir()
+
+    def _voice_discovery(self):
+        app = self._app()
+        if app is None:
+            return None
+        from app.providers.voice_discovery import VoiceDiscoveryService
+
+        return VoiceDiscoveryService(app.config)
 
     def _apply_voice_health(self, display: VoiceHealthDisplay) -> None:
         self._voice_health_status.setText(display.headline)
@@ -852,6 +942,39 @@ class SettingsPage(QWidget):
             self._apply_voice_health(probe_kokoro_quick(model_dir=model_dir))
             return
 
+        if self._selected_voice_provider_id().casefold() == PIPER_PROVIDER_ID:
+            discovery = self._voice_discovery()
+            if discovery is None:
+                self._apply_voice_health(
+                    VoiceHealthDisplay(
+                        "idle",
+                        "Unavailable",
+                        "Open Settings after the app finishes starting.",
+                    )
+                )
+                return
+            voices_dir = discovery.piper_voices_dir()
+            onnx_count = (
+                len(list(voices_dir.rglob("*.onnx"))) if voices_dir.is_dir() else 0
+            )
+            if onnx_count <= 0:
+                self._apply_voice_health(
+                    VoiceHealthDisplay(
+                        "warn",
+                        "No Piper models",
+                        f"Place *.onnx voice files in {voices_dir}.",
+                    )
+                )
+            else:
+                self._apply_voice_health(
+                    VoiceHealthDisplay(
+                        "ok",
+                        "Piper models found",
+                        f"{onnx_count} *.onnx file(s) in {voices_dir}.",
+                    )
+                )
+            return
+
         # Cloud provider — lightweight readiness without dialogs.
         settings = self._read_voice_settings()
         if not settings.api_key.strip():
@@ -859,7 +982,7 @@ class SettingsPage(QWidget):
                 VoiceHealthDisplay(
                     "warn",
                     "API key required",
-                    "Enter an API key for this cloud provider, or switch to Kokoro.",
+                    "Enter an API key for this cloud provider, or switch to Kokoro / Piper.",
                 )
             )
             return
@@ -872,9 +995,17 @@ class SettingsPage(QWidget):
         )
 
     def _build_voice_provider(self, settings: VoiceSettings):
-        if self._is_kokoro_selected():
-            return KokoroProvider(settings, model_dir=self._kokoro_model_dir())
-        return ElevenLabsVoiceProvider(settings)
+        discovery = self._voice_discovery()
+        if discovery is None:
+            from app.providers.errors import ProviderConfigurationError
+
+            raise ProviderConfigurationError(
+                "Application is not ready — cannot resolve the voice provider."
+            )
+        return discovery.resolve_provider(
+            provider_id=self._selected_voice_provider_id(),
+            settings=settings,
+        )
 
     def _on_voice_library_selected(self, voice: object) -> None:
         if not isinstance(voice, VoiceInfo):
@@ -908,26 +1039,37 @@ class SettingsPage(QWidget):
 
     def _refresh_voice_library(self) -> None:
         settings = self._read_voice_settings()
-        provider = self._build_voice_provider(settings)
-        self._voice_library.set_provider(provider)
+        discovery = self._voice_discovery()
+        if discovery is None:
+            self._voice_library.clear()
+            self._voice_library.set_voices(
+                [],
+                empty_message="Application is not ready — open Settings after startup.",
+            )
+            self._status.setText("Application is not ready.")
+            return
+
+        result = discovery.discover(
+            provider_id=self._selected_voice_provider_id(),
+            settings=settings,
+        )
         try:
-            voices = provider.list_voices()
-        except ProviderError as exc:
-            self._voice_library.clear()
-            self._status.setText(str(exc))
-            return
-        except Exception as exc:  # noqa: BLE001
-            self._voice_library.clear()
-            self._status.setText(f"Could not load voices: {exc}")
-            return
+            provider = discovery.resolve_provider(
+                provider_id=result.provider_id or self._selected_voice_provider_id(),
+                settings=settings,
+            )
+            self._voice_library.set_provider(provider)
+        except Exception:  # noqa: BLE001
+            self._voice_library.set_provider(None)
+
         preferred = getattr(self, "_pending_voice_id", "") or settings.voice_id
-        # Prefer persisted app voice; rematch if the id disappeared.
         self._voice_persist_enabled = False
         try:
             self._voice_library.set_voices(
-                voices,
+                result.voices,
                 selected_voice_id=preferred,
                 language=settings.language,
+                empty_message=result.empty_message if not result.ok else result.warning,
             )
         finally:
             self._voice_persist_enabled = True
@@ -935,14 +1077,15 @@ class SettingsPage(QWidget):
         if selected is not None:
             self._pending_voice_id = selected.voice_id
             self._pending_voice_name = selected.name
-            # Persist rematch so the next launch keeps the closest voice.
             self._persist_last_selected_voice(selected)
-        if not voices:
-            self._status.setText("No voices available.")
+        if not result.ok:
+            self._status.setText(result.empty_message)
+        elif result.warning:
+            self._status.setText(result.warning)
         elif self._voice_library.last_warning:
-            pass  # warning already shown inline + status_message
+            pass
         else:
-            self._status.setText(f"Loaded {len(voices)} voice(s).")
+            self._status.setText(f"Loaded {len(result.voices)} voice(s).")
 
     def _read_voice_settings(self) -> VoiceSettings:
         selected = self._voice_library.selected_voice()
@@ -969,16 +1112,15 @@ class SettingsPage(QWidget):
 
     def _test_voice(self) -> None:
         settings = self._read_voice_settings()
-        kokoro = self._is_kokoro_selected()
-        self._status.setText(
-            "Testing Kokoro…" if kokoro else "Testing cloud voice provider…"
-        )
+        local = self._is_local_voice_selected()
+        label = self._voice_provider.currentText() or "voice provider"
+        self._status.setText(f"Testing {label}…")
         app = self._app()
         if app is not None:
             app.processEvents()
         provider = self._build_voice_provider(settings)
         try:
-            if kokoro and hasattr(provider, "health_check"):
+            if self._is_kokoro_selected() and hasattr(provider, "health_check"):
                 health = provider.health_check()
                 display = display_from_kokoro_health(health)
                 self._apply_voice_health(display)
@@ -1002,13 +1144,21 @@ class SettingsPage(QWidget):
             return
 
         self._voice_library.set_provider(provider)
+        discovery = self._voice_discovery()
+        empty_message = ""
+        if not voices and discovery is not None:
+            empty_message = discovery.discover(
+                provider_id=self._selected_voice_provider_id(),
+                settings=settings,
+            ).empty_message
         self._voice_library.set_voices(
             voices,
             selected_voice_id=settings.voice_id,
             language=settings.language,
+            empty_message=empty_message or "No voices available.",
         )
         if not voices:
-            self._status.setText("No voices available.")
+            self._status.setText(empty_message or "No voices available.")
         else:
             preferred_model = self._voice_model.currentText().strip()
             self._set_combo_models(self._voice_model, models, preferred=preferred_model)
@@ -1020,11 +1170,16 @@ class SettingsPage(QWidget):
             return
         settings = self._read_voice_settings()
         provider_id = self._selected_voice_provider_id()
-        kokoro = provider_id.casefold() in {KOKORO_PROVIDER_ID, LOCAL_VOICE_PROVIDER_ID}
-        if kokoro:
+        local = self._is_local_voice_selected()
+        if provider_id.casefold() in {LOCAL_VOICE_PROVIDER_ID, "kokoro"}:
             provider_id = KOKORO_PROVIDER_ID
-        if not kokoro and not settings.api_key:
-            message = "Enter an API key for this cloud provider, or switch to Kokoro."
+        if provider_id.casefold() == PIPER_PROVIDER_ID:
+            provider_id = PIPER_PROVIDER_ID
+        if not local and not settings.api_key:
+            message = (
+                "Enter an API key for this cloud provider, "
+                "or switch to Kokoro / Piper."
+            )
             self._apply_voice_health(
                 VoiceHealthDisplay("warn", "API key required", message)
             )
@@ -1042,7 +1197,7 @@ class SettingsPage(QWidget):
         app.config.save()
         app.rebuild_production_engine()
         label = settings.voice_name or settings.voice_id
-        kind = "Kokoro" if kokoro else provider_id
+        kind = self._voice_provider.currentText() or provider_id
         self._status.setText(f"Voice settings saved ({kind}: {label}).")
         app.show_notification("Voice Settings Saved", f"{kind} · {label}")
 

@@ -67,8 +67,25 @@ class VoiceRegistryKokoroTests(unittest.TestCase):
         svc_text = Path(svc_mod.__file__).read_text(encoding="utf-8")
         self.assertNotIn("kokoro", gen_text.casefold())
         self.assertNotIn("kokoro", svc_text.casefold())
+        self.assertNotIn("piper", gen_text.casefold())
+        self.assertNotIn("piper", svc_text.casefold())
         self.assertNotIn("KokoroProvider", gen_text)
         self.assertNotIn("KokoroProvider", svc_text)
+        self.assertNotIn("PiperVoiceProvider", gen_text)
+        self.assertNotIn("PiperVoiceProvider", svc_text)
+
+    def test_explicit_piper_id(self) -> None:
+        from app.providers.piper import PiperVoiceProvider
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "voices" / "piper").mkdir(parents=True)
+            config = AppConfig(data_root=root)
+            provider = VoiceProviderRegistry(config).require_voice_provider(
+                provider_id="piper"
+            )
+            self.assertIsInstance(provider, PiperVoiceProvider)
+            self.assertEqual(provider.provider_id, "piper")
 
     def test_missing_kokoro_runtime_fails_cleanly(self) -> None:
         config = AppConfig(data_root=Path("."))
